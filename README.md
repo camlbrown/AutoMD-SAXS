@@ -23,9 +23,9 @@ AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of p
   1. sh simulation_setup.sh -p <protein>.pdb -s <saxs.dat>
      - Flag -s is optional
      - Ensure .pdb and .dat file are present within the AutoMD-SAXS directory
-     - output is dir: _<protein>_simulation_
-     - creates configurations.txt containing directory and parameter variables
+     - Output is dir: _<protein>_simulation_
+     - Creates configurations.txt containing directory and parameter variables
     
   2. sh run_MD.sh <protein>_simulation
-     - calls dir _slurms_ to run MD jobs via Slurm
+     - Calls dir _slurms_ to run MD jobs via Slurm
 
