@@ -15,7 +15,7 @@ AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of p
   - simulation_setup.sh
   - run_MD.sh 
 
-**Run requirements**
+**Run files**
   - Protein file (.pdb)
   - SAXS data (.dat)
     
