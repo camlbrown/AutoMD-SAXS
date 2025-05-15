@@ -24,7 +24,7 @@ conda env create -f automdsaxs.yml
 conda activate automdsaxs
 ```
 
-## Usage:
+## Usage
 
 ### File requirements
   - Protein (.pdb)
