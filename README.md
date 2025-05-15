@@ -83,6 +83,7 @@ If you use AutoMD-SAXS in your research...
   url={}
 }
 
+###will they need to cite other packages that the pipeline uses?
 ```
 Shield:
 This work is licensed under...
