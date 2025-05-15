@@ -1,14 +1,10 @@
 # AutoMD-SAXS
-Automated molecular dynamics in GROMACS with post-processing and optional SAXS-based analysis.
 
 <p align="center">
   <img src="workflow.svg" alt="Workflow" width="600"/>
 </p>
 
-Schematic representation of the Carbonara refinement pipeline. The workflow proceeds from an initial structure (a) with identification of flexible regions (b), conformational sampling guided by SAXS data constraints (c), model selection based on optimal fit (d), and finally all-atom reconstruction (e) for downstream applications.
-
-
-AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of proteins, disorderd proteins, and protein-ligand systems. Built for use on HPC using the Slurm job scheduler.
+AutoMD-SAXS is an automated workflow for the setup, simulation and SAXS-based analysis of protein and protein-ligand systems. Built for use on HPC using the Slurm job scheduler.
 
 ## Installation
 ### Software requirements:
