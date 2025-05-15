@@ -19,11 +19,10 @@ AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of p
 
 ```bash
 # Create a new conda environment
-conda env create -f automdsaxs.ym
+conda env create -f automdsaxs.yml
 # Activate environment
 conda activate automdsaxs
 ```
-
 
 ## Usage:
 
@@ -41,7 +40,9 @@ cd /path/to/AutoMD-SAXS
 ```bash
 sh simulation_setup.sh -p *Protein*.pdb --saxs *SAXS*.dat 
 ```
-Outputs the directory ```bash *Protein*_simulation ```
+- Flag -s is optional. Running without -s will not invoke SAXS-based trajectory analysis
+
+Outputs the directory ```bash *Protein*_simulation ```.  
 
 ### Run the simulation
 
@@ -49,17 +50,22 @@ Outputs the directory ```bash *Protein*_simulation ```
 sh run_MD.sh *Protein*_simulation 
 ```
 
+### Directory layout
 
-    
-## User workflow
-  1. sh simulation_setup.sh -p \<protein\>.pdb -s \<saxs.dat\>
-     - Flag -s is optional
-     - Ensure .pdb and .dat file are present within the AutoMD-SAXS directory
-     - Output is dir: '\<protein\>_simulation'
-     - Creates '\<protein\>_simulation/configurations.txt' containing directory and parameter variables
-    
-  2. sh run_MD.sh <protein>_simulation
-     - Calls dir 'slurms' to run MD jobs via Slurm
+```bash
+ff_convert
+```
+Invoked by ```bash simulation_setup.sh ```, this folder contains the conversion scripts that recast your input PDB’s atom names and residue labels into the conventions required by the Amber14-SB and CHARMM36m force fields.
+
+```bash
+slurms/ 
+```
+Holds all of the Slurm submission scripts that drive the pipeline. Users can modify the #SBATCH lines of these scripts to fit their own cluster’s scheduler settings or resource requirements.
+
+```bash
+mdp_files/
+```
+GROMACS .mdp parameter files for each simulation stage. These templates work “out of the box,” but more experienced MD practitioners may wish to tailor these parameters to their specific system or research needs.
 
 ## Citation
 
