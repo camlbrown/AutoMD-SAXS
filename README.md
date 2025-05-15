@@ -41,7 +41,7 @@ cd /path/to/AutoMD-SAXS
 sh simulation_setup.sh -p *Protein*.pdb -s *SAXS*.dat 
 ```
 - -s flag is optional. Running without -s will not invoke SAXS-based trajectory analysis
-- Outputs the directory ```*Protein*_simulation ```
+- Outputs the directory ```*Protein*_simulation/ ```
 - User will be prompted to answer questions related to their system. Answers outputted as variables to ```/AutoMD-SAXS/*Protein*_simulation/configurations.txt ```
 
 For full documentation please read xyz.pdf 
@@ -49,7 +49,7 @@ For full documentation please read xyz.pdf
 ### Run the simulation
 
 ```bash
-sh run_MD.sh *Protein*_simulation 
+sh run_MD.sh *Protein*_simulation/ 
 ```
 
 ## Directory layout
