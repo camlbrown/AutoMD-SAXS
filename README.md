@@ -26,7 +26,7 @@ conda activate automdsaxs
 
 ## Usage:
 
-### Run files
+### File requirements
   - Protein (.pdb)
   - SAXS data (.dat)
 
