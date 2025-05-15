@@ -52,7 +52,7 @@ sh run_MD.sh *Protein*_simulation
 ## Directory layout
 
 ```bash
-ff_convert
+ff_convert/
 ```
 Invoked by ```bash simulation_setup.sh ```, this folder contains the conversion scripts that recast your input PDB’s atom names and residue labels into the conventions required by the Amber14-SB and CHARMM36m force fields.
 
