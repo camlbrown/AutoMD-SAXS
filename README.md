@@ -27,12 +27,17 @@ conda activate automdsaxs
 
 ## Usage:
 
-### Run files**
+### Run files
   - Protein (.pdb)
   - SAXS data (.dat)
+
 Note: Both files must be present within the AutoMD-SAXS directory
 
 ### Simulation setup
+```bash
+cd /path/to/AutoMD-SAXS 
+```
+
 ```bash
 sh simulation_setup.sh -p *Protein*.pdb --saxs *SAXS*.dat 
 ```
@@ -55,3 +60,20 @@ h
   2. sh run_MD.sh <protein>_simulation
      - Calls dir 'slurms' to run MD jobs via Slurm
 
+## Citation
+
+If you use AutoMD-SAXS in your research...
+
+```bibtex
+@article{carbonara2025,
+  title={},
+  author={},
+  journal={},
+  year={2025},
+  doi={},
+  url={}
+}
+
+```
+Shield:
+This work is licensed under...
