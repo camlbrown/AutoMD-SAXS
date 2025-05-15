@@ -1,7 +1,11 @@
 # AutoMD-SAXS
 Automated molecular dynamics in GROMACS with post-processing and optional SAXS-based analysis.
 
-#######include pic of pipeline##########
+<p align="center">
+  <img src="figures/pipeline_github.svg" alt="Pipeline Overview" width="600"/>
+</p>
+
+Schematic representation of the Carbonara refinement pipeline. The workflow proceeds from an initial structure (a) with identification of flexible regions (b), conformational sampling guided by SAXS data constraints (c), model selection based on optimal fit (d), and finally all-atom reconstruction (e) for downstream applications.
 
 
 AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of proteins, disorderd proteins, and protein-ligand systems. Built for use on HPC using the Slurm job scheduler.
@@ -44,6 +48,7 @@ sh simulation_setup.sh -p *Protein*.pdb -s *SAXS*.dat
 - Outputs the directory ```*Protein*_simulation ```
 - User will be prompted to answer questions related to their system. Answers outputted as variables to ```/AutoMD-SAXS/*Protein*_simulation/configurations.txt ```
 
+For full documentation please read xyz.pdf 
 
 ### Run the simulation
 
@@ -56,7 +61,7 @@ sh run_MD.sh *Protein*_simulation
 ```bash
 ff_convert/
 ```
-Invoked by ```simulation_setup.sh```, this directory contains scripts that recast the input PDB’s atom names and residue labels into the conventions required by the AMBER and CHARMM force fields.
+Invoked by ```simulation_setup.sh```, this directory contains scripts that recast the input PDB’s atom names and residue labels into the conventions required by the AMBER and CHARMM force fields. 
 
 ```bash
 slurms/ 
