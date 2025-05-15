@@ -4,7 +4,7 @@ Automated molecular dynamics in GROMACS with post-processing and optional SAXS-b
 #######include pic of pipeline##########
 
 
-AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of proteins, disorderd proteins, and protein-ligand systems. Integrated with the Slurm scheduler, this pipeline is designed for HPC.
+AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of proteins, disorderd proteins, and protein-ligand systems. Built for use on HPC using the Slurm job scheduler.
 
 ## Installation
 ### Software requirements:
