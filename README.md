@@ -10,7 +10,7 @@ AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of p
 ### Software requirements:
   - GROMACS (local install or module loaded)
   - Slurm job scheduler
-  - Conda (all relevant packages are found in automdsaxs.yml)
+  - Conda 
   - ATSAS 
       - Download only required for SAXS-based analysis 
       - Current analysis is optimised for ATSAS 3.0.4 (recommended)
