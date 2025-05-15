@@ -66,7 +66,7 @@ Holds all of the Slurm submission scripts that drive the pipeline. Users can mod
 ```bash
 mdp_files/
 ```
-GROMACS .mdp parameter files for each simulation stage. These templates work “out of the box,” but more experienced MD practitioners may wish to tailor these parameters to their specific system or research needs.
+GROMACS .mdp parameter files for each simulation stage. These templates work “out of the box,” but more experienced MD users may wish to tailor these parameters to their specific system or research needs.
 
 ## Citation
 
