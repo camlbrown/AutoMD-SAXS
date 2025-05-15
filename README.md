@@ -49,7 +49,7 @@ sh simulation_setup.sh -p *Protein*.pdb --saxs *SAXS*.dat
 sh run_MD.sh *Protein*_simulation 
 ```
 
-### Directory layout
+## Directory layout
 
 ```bash
 ff_convert
