@@ -27,8 +27,8 @@ conda activate automdsaxs
 ## Usage
 
 ### File requirements
-  - Protein (.pdb)
-  - SAXS data (.dat)
+- ```*Protein*.pdb```
+- ```*SAXS*.dat```
 
 Note: Both files must be present within the AutoMD-SAXS directory
 
