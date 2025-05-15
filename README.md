@@ -10,7 +10,7 @@ AutoMD-SAXS is an automated workflow for the setup, simulation and analysis of p
 ### Software requirements:
   - GROMACS (local install or module loaded)
   - Slurm job scheduler
-  - Conda (all relevant packages are found in automdsaxs.yml). 
+  - Conda (all relevant packages are found in automdsaxs.yml)
   - ATSAS 
       - Download only required for SAXS-based analysis 
       - Current analysis is optimised for ATSAS 3.0.4 (recommended)
@@ -41,8 +41,8 @@ cd /path/to/AutoMD-SAXS
 sh simulation_setup.sh -p *Protein*.pdb -s *SAXS*.dat 
 ```
 - Flag -s is optional. Running without -s will not invoke SAXS-based trajectory analysis
-- Outputs the directory ```bash *Protein*_simulation ```.  
-- User will be prompted to answer questions related to their system. Answers outputted as variables to ```bash /AutoMD-SAXS/*Protein*_simulation/configurations.txt ```. 
+- Outputs the directory ```bash *Protein*_simulation ```
+- User will be prompted to answer questions related to their system. Answers outputted as variables to ```bash /AutoMD-SAXS/*Protein*_simulation/configurations.txt ```
 
 
 ### Run the simulation
