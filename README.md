@@ -43,10 +43,11 @@ sh simulation_setup.sh -p *Protein*.pdb --saxs *SAXS*.dat
 ```
 Outputs the directory ```bash *Protein*_simulation ```
 
-### R
+### Run the simulation
 
-h
-  - run_MD.sh 
+```bash
+sh run_MD.sh *Protein*_simulation 
+```
 
 
     
@@ -65,7 +66,7 @@ h
 If you use AutoMD-SAXS in your research...
 
 ```bibtex
-@article{carbonara2025,
+@article{,
   title={},
   author={},
   journal={},
