@@ -75,6 +75,7 @@ examples/
 Contains end-to-end demonstrations of every major workflow variant supported by this pipeline
 - System types: protein or protein–ligand complexes
 - Preparation methods: Protein Preparation Wizard, H++ protonation, or CHARMM-GUI
+- Force fields: CHARMM36M or AMBER14SB
 - SAXS: with and without experimental SAXS data integration
 
 ## Citation
