@@ -72,14 +72,10 @@ GROMACS .mdp parameter files for each simulation stage. These templates work “
 ```bash
 examples/
 ```
-
-Contains end-to-end demonstrations of every major workflow variant supported by this pipeline:
-
-System types: protein or protein–ligand complexes
-
-Preparation methods: Protein Preparation Wizard, H++ protonation, or CHARMM-GUI
-
-SAXS: with and without experimental SAXS data integration
+Contains end-to-end demonstrations of every major workflow variant supported by this pipeline
+- System types: protein or protein–ligand complexes
+- Preparation methods: Protein Preparation Wizard, H++ protonation, or CHARMM-GUI
+- SAXS: with and without experimental SAXS data integration
 
 ## Citation
 
