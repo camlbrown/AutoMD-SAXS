@@ -69,6 +69,18 @@ mdp_files/
 ```
 GROMACS .mdp parameter files for each simulation stage. These templates work “out of the box,” but more experienced MD users may wish to tailor these parameters to their specific system or research needs.
 
+```bash
+examples/
+```
+
+Contains end-to-end demonstrations of every major workflow variant supported by this pipeline:
+
+System types: protein or protein–ligand complexes
+
+Preparation methods: Protein Preparation Wizard, H++ protonation, or CHARMM-GUI
+
+SAXS: with and without experimental SAXS data integration
+
 ## Citation
 
 If you use AutoMD-SAXS in your research...
