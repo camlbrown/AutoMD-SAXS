@@ -1,10 +1,9 @@
 #!/bin/bash
 
-#SBATCH --ntasks-per-node=12
+#SBATCH --ntasks-per-node=40
 #SBATCH --nodes=1
 #SBATCH --time=01:00:00
 #SBATCH --partition=scavenger
-
 
 SIMULATION_DIR="$1"
 config_file="$SIMULATION_DIR/configurations.txt"

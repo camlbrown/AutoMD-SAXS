@@ -1,4 +1,5 @@
 #!/bin/bash
+#Simulation setup 
 
 echo "                _        __  __ _____         _____         __   __ _____ 
      /\        | |      |  \/  |  __ \       / ____|  /\    \ \ / // ____|
@@ -44,7 +45,6 @@ if [[ "$1" == "-help" || "$1" == "-h" ]]; then
   exit 0
 fi
 
-# Determine the directory this script lives in
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 PROTEIN_FILE=""
@@ -71,7 +71,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Validate protein input
 if [[ -z "$PROTEIN_FILE" ]]; then
   echo "Error: Protein file (-p) must be provided." >&2
   exit 1
@@ -94,18 +93,12 @@ fi
 PROTEIN_NAME="${PROTEIN_FILE%.pdb}"
 export BASE_DIR PROTEIN_FILE PROTEIN_NAME SAXS_FILE
 
-
-
+# Initial user notes 
 echo "Welcome to your MD simulation setup!"
 echo ""
 echo "Protein file = $PROTEIN_FILE"
 echo "SAXS file = $SAXS_FILE"
 echo ""
-echo "Please select your system type:"
-echo ""
-echo "Note: if your protein exhibits high levels of flexibility or contains intrinsically disordered regions, please select '2) Intrinsically Disordered Protein'" 
-echo ""
-
 
 # Directory structure 
 SIMULATION_DIR="$BASE_DIR/${PROTEIN_NAME}_simulation"
@@ -158,8 +151,6 @@ for stage in "${STAGE_DIRS[@]}"; do
   export "$var"="$full"
 done
 
-
-
 # Processed and frame-extraction dirs
 for i in 1 2 3; do
   proc_var="PROCESSED_R${i}"
@@ -182,8 +173,7 @@ if [[ "$SAXS_FILE" != "None" ]]; then
   }
 fi
 
-#---------------MD SETUP---------------
-
+# MD SETUP
 # GROMACS
 
 config_file="$SIMULATION_DIR/configurations.txt"
@@ -229,122 +219,114 @@ echo ""
 
 # System setup
 
-options=("Protein" "Intrinsically Disordered Protein" "Protein-ligand")
-
-for i in "${!options[@]}"; do
-  echo "$((i+1)). ${options[i]}"
-done
-
+echo "Select system type:"
+echo "  1) Protein"
+echo "  2) Protein-ligand"
 echo ""
+read -rp "Enter 1 or 2: " sys_choice
 
-read -p "Enter the number corresponding to your system type: " choice
-
-case $choice in
+case "$sys_choice" in
   1)
-    echo "You chose Protein."
-    echo "Amber14ffsb force field selected. If you would like to change force field see the manual"
-    while true; do
-      echo ""
-      echo "--------------------------------------------------------------------------------------------"
-      echo ""
-      echo "Choose box shape:"
-      echo ""
-      echo "1. Globular"
-      echo "2. Anisotropic"
-      echo ""
-      read -p "Enter the number corresponding to the box shape: " box_choice
-      echo ""
-      case $box_choice in
-        1)
-          export BOX_SHAPE="dodecahedron"
-          break
-          ;;
-        2)
-          export BOX_SHAPE="rectangular"
-          break
-          ;;
-        *)
-          echo "Invalid choice. Please choose again."
-          ;;
-      esac
-    done
-    export FORCE_FIELD="$FORCE_FIELD_DIR/amber14sb"
-    cp $PROTEIN_FILE $FF_CONVERT/amber && cd $FF_CONVERT/amber
-    sh amber_convert.sh $PROTEIN_FILE
-    cp GMX.pdb $SIMULATION_DIR 
-    cp GMX.pdb $PDB2GMX_DIR 
-    rm GMX.pdb && cd $BASE_DIR  
+    SYSTEM="Protein"
+    export SYSTEM
+    echo "You chose: $SYSTEM"
+    echo ""
+
+    echo "Select your force field:"
+    echo "  1) amber14sb"
+    echo "  2) charmm36m"
+    echo ""
+    read -rp "Enter 1 or 2: " ff_choice
+
+    case "$ff_choice" in
+      1)
+        export FORCE_FIELD="$FORCE_FIELD_DIR/amber14sb"
+        FF_CONVERT_SUBDIR="amber"
+        ;;
+      2)
+        export FORCE_FIELD="$FORCE_FIELD_DIR/charmm36m"
+        FF_CONVERT_SUBDIR="charmm"
+        ;;
+      *)
+        echo "Invalid force field choice; please run again." >&2
+        exit 1
+        ;;
+    esac
     ;;
   2)
-    echo "You chose Intrinsically disordered protein."
-    echo "Amber14ffsb force field selected. If you would like to change force field see the manual"
-    while true; do
-      echo ""
-      echo "--------------------------------------------------------------------------------------------"
-      echo ""
-      echo "Choose box shape:"
-      echo ""
-      echo "1. Globular"
-      echo "2. Anisotropic"
-      echo ""
-      read -p "Enter the number corresponding to the box shape: " box_choice
-      echo ""
-      case $box_choice in
-        1)
-          export BOX_SHAPE="dodecahedron"
-          break
-          ;;
-        2)
-          export BOX_SHAPE="rectangular"
-          break
-          ;;
-        *)
-          echo "Invalid choice. Please choose again."
-          ;;
-      esac
-    done
-    cp $PROTEIN_FILE $FF_CONVERT/charmm && cd $FF_CONVERT/charmm
-    sh charmm_convert.sh $PROTEIN_FILE
-    cp GMX.pdb $SIMULATION_DIR
-    cp GMX.pdb $PDB2GMX_DIR 
-    rm GMX.pdb && cd $BASE_DIR  
-    export FORCE_FIELD="$FORCE_FIELD_DIR/charmm36m"
-    ;;
+    SYSTEM="Protein-ligand"
+    export SYSTEM
+    echo "You chose: $SYSTEM"
+    echo ""
 
-  3)
-    echo "You chose Protein-ligand."
-    while true; do
-      echo "Choose box shape:"
-      echo "1. Globular"
-      echo "2. Anisotropic"
-      read -p "Enter the number corresponding to the box shape: " box_choice
-      case $box_choice in
-        1)
-          export BOX_SHAPE="octahedron"
-          break
-          ;;
-        2)
-          export BOX_SHAPE="triclinic"
-          break
-          ;;
-        *)
-          echo "Invalid choice. Please choose again."
-          ;;
-      esac
-    done
-    cp $PROTEIN_FILE $FF_CONVERT/amber && cd $FF_CONVERT/amber
-    sh amber_convert.sh $PROTEIN_FILE
-    cp GMX.pdb $SIMULATION_DIR 
-    cp GMX.pdb $LIGAND_SETUP 
-    cp GMX.pdb $PDB2GMX_DIR
-    rm GMX.pdb && cd $BASE_DIR  
+    # For protein-ligand always use amber14sb
     export FORCE_FIELD="$FORCE_FIELD_DIR/amber14sb"
+    FF_CONVERT_SUBDIR="amber"
     ;;
   *)
-echo "Invalid choice. Please select a valid number from the options provided."
+    echo "Invalid system type; please run again and pick 1 or 2." >&2
     exit 1
     ;;
 esac
+
+echo ""
+echo "Using force field: $FORCE_FIELD"
+echo ""
+
+# Protein Preparation Wizard check 
+read -rp "Did you use the Protein Preparation Wizard to prepare your system for MD? (y/N) " ppw_ans
+if [[ "$ppw_ans" =~ ^[Yy] ]]; then
+  export PPW=yes
+else
+  export PPW=no
+fi
+echo "PPW set to: $PPW"
+
+# Pick the right path for conversion scripts 
+if [[ "$PPW" = "yes" ]]; then
+  CONVERT_ROOT="$FF_CONVERT"
+else
+  CONVERT_ROOT="$FF_CONVERT/non_ppw_convert"
+fi
+echo "Will convert from: $CONVERT_ROOT/$FF_CONVERT_SUBDIR"
+echo ""
+
+# Run the appropriate conversion 
+echo "Converting PDB with $FF_CONVERT_SUBDIR script in $CONVERT_ROOT..."
+cp "$PROTEIN_FILE" "$CONVERT_ROOT/$FF_CONVERT_SUBDIR/"
+pushd "$CONVERT_ROOT/$FF_CONVERT_SUBDIR" >/dev/null
+
+if [[ "$FF_CONVERT_SUBDIR" = "amber" ]]; then
+  sh amber_convert.sh "$PROTEIN_FILE"
+else
+  sh charmm_convert.sh "$PROTEIN_FILE"
+fi
+
+cp GMX.pdb "$SIMULATION_DIR"
+cp GMX.pdb "$PDB2GMX_DIR"
+cp GMX.pdb "$LIGAND_SETUP"
+rm GMX.pdb
+
+popd >/dev/null
+echo "Conversion complete."
+echo ""
+
+# Box-shape 
+
+echo "Now choose your box shape:"
+echo "  1) Dodecahedron (globular particles)"
+echo "  2) Rectangular (anisotropic rod-shaped particles)"
+echo ""
+read -rp "Enter 1 or 2: " box_choice
+
+case "$box_choice" in
+  1) export BOX_SHAPE="dodecahedron" ;;
+  2) export BOX_SHAPE="rectangular"  ;;
+  *) echo "Invalid choice; exiting." >&2; exit 1 ;;
+esac
+
+echo "Box shape set to: $BOX_SHAPE"
+
 
 echo ""
 echo "---------------------------------------------------------------------"
@@ -354,7 +336,7 @@ echo ""
 
 echo "Choose your ionic concentration (mM) e.g. 0.15 "
 echo ""
-echo "Note: if integrating SAXS data into the simulation, please use the experimental concentration"
+echo "Note: if integrating SAXS data into the simulation analysis, please use the experimental concentration"
 echo ""
 
 valid_input=false
@@ -395,6 +377,7 @@ done
 if [[ "$SAXS_FILE" != "None" ]]; then
 
   # Dmax
+  echo ""
   echo "What is the maximum scattering dimension (Dmax) described by the experimental SAXS data?"
   echo ""
   echo "Note: if unknown please enter the largest dimension described by your protein model"
@@ -441,7 +424,6 @@ while [ "$valid_input" = false ]; do
         echo "Error: Please enter either 'yes' (y) or 'no' (n)."
     fi
 done
-
 
 echo ""
 echo "---------------------------------------------------------------------"
@@ -515,7 +497,8 @@ echo "MDP_DIR=$MDP_DIR" >> "$config_file"
 echo "BOX_SHAPE=$BOX_SHAPE" >> "$config_file"
 echo "GMXLIB=$BASE_DIR/ff_files" >> "$config_file"
 echo "PROTEIN_FILE=$PROTEIN_FILE" >> "$config_file"
-echo "SYSTEM=\"${options[$((choice-1))]}\"" >> "$config_file"
+#echo "SYSTEM=\"${options[$((choice-1))]}\"" >> "$config_file"
+echo "SYSTEM=$SYSTEM" >> "$config_file"
 echo "LIGAND_SETUP=$LIGAND_SETUP" >> "$config_file"
 echo "IONIC_CONCENTRATION=$ionic_concentration" >> $config_file
 echo "SIMULATION_TIME=$simulation_time" >> "$config_file"
@@ -530,6 +513,6 @@ Configurations file has been created: $config_file
 Please check your system settings are correct in $SIMULATION_DIR/configurations.txt prior to executing 'run_MD.sh'
 
 If you are happy with your configurations, run MD using:
-"sh run_MD.sh <input_pdb>_simulation"  
+"sh run_MD.sh '$PROTEIN_NAME'_simulation"  
 EOM
 

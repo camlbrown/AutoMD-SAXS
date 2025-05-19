@@ -21,7 +21,8 @@ cd "$REPEAT_DIR2"
 
 load_gmx
 
-mpirun gmx_mpi mdrun -s md.tpr -cpi md.cpt -deffnm md 
+mpirun gmx_mpi mdrun -s md.tpr -cpi md.cpt -deffnm md -maxh 1
+
 wait
 
 sleep 100

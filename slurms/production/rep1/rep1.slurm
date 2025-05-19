@@ -2,7 +2,7 @@
 
 #SBATCH --ntasks-per-node=40
 #SBATCH --nodes=1
-#SBATCH --time=0:20:00
+#SBATCH --time=01:10:00
 
 SIMULATION_DIR="$1"
 config_file="$SIMULATION_DIR/configurations.txt"
@@ -20,7 +20,7 @@ cd $REPEAT_DIR1
 
 load_gmx
 
-mpirun gmx_mpi mdrun -deffnm md 
+mpirun gmx_mpi mdrun -deffnm md -maxh 1
 
 wait
 

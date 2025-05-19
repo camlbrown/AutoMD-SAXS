@@ -1,10 +1,9 @@
 #!/bin/bash
 
-#-----------------MD RUN SCRIPT-----------------
+#-----------------MD RUN SCRIPT------------------
 
 # General housekeeping
 set -euo pipefail
-
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <simulation_directory>"
@@ -36,6 +35,7 @@ fi
 
 GMXLIB="$BASE_DIR/ff_files"
 export GMXLIB
+FF_NAME=${FORCE_FIELD##*/}
 
 # Conditional setup
 
@@ -47,15 +47,14 @@ else
 fi
 
 # Convert simulation time from nanoseconds to number of steps
-# Assuming a time step of 2fs
+# for a timestep of 2fs
 # 1 nanosecond = 500,000 timesteps
 number_of_steps=$(( SIMULATION_TIME * 500000 ))
-
 
 # Choose the prod .mdp file for step editing based on SYSTEM
 if [ "$SYSTEM" = "Protein-ligand" ]; then
     TIMESTEP="$MDP_DIR/lig_md.mdp"
-elif [ "$SYSTEM" = "Protein" ] || [ "$SYSTEM" = "Intrinsically Disordered Protein" ]; then
+elif [ "$SYSTEM" = "Protein" ]; then
     TIMESTEP="$MDP_DIR/md.mdp"
 else
     echo "Error: Unknown SYSTEM type: $SYSTEM" >&2
@@ -66,61 +65,19 @@ fi
 sed -i "s/nsteps[[:space:]]*=[[:space:]]*[0-9]*[[:space:]]*;/nsteps                  = $number_of_steps ;/" "$TIMESTEP"
 echo "Updated number of steps in $(basename "$TIMESTEP") to $number_of_steps"
 
+# Generate topology 
+if [[ "$SYSTEM" == "Protein-ligand" ]]; then
 
-# Generate GMX compatible files
-case "$SYSTEM" in
-
-  "Intrinsically Disordered Protein")
-    load_gmx
-    cd $PDB2GMX_DIR gmx_mpi pdb2gmx -f GMX.pdb -o GMX.gro -p topol.top -chainsep id -ff charmm36m -water tip3p -ter -merge all $ss_flag
-
-    shopt -s nullglob
-
-    itps=( "$PDB2GMX_DIR"/*.itp )
-    if (( ${#itps[@]} )); then
-        cp "$PDB2GMX_DIR"/*.itp "$MINIM1_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$MINIM2_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$NVT_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$NPT_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$PRODUCTION_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$GENION_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$SOLVATE_DIR"
-    fi
-
-    ;;
-
-  "Protein")
-    load_gmx
-    cd $PDB2GMX_DIR
-    gmx_mpi pdb2gmx -f GMX.pdb -o GMX.gro -p topol.top -chainsep ter -merge all -ff amber14sb -ter -water tip3p $ss_flag 2>&1 | tee pdb2gmx.log
-
-    shopt -s nullglob
-
-    itps=( "$PDB2GMX_DIR"/*.itp )
-    if (( ${#itps[@]} )); then
-        cp "$PDB2GMX_DIR"/*.itp "$MINIM1_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$MINIM2_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$NVT_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$NPT_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$PRODUCTION_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$GENION_DIR"
-        cp "$PDB2GMX_DIR"/*.itp "$SOLVATE_DIR"
-    fi
-          
-    ;;
-
-  "Protein-ligand")
     # copy and split out ligand/protein
     cd "$LIGAND_SETUP"
     mv GMX.pdb complex.pdb
-
     $PYTHON_CMD \
       "$SLURM_DIR/ligand_setup/separate_multi_lig.py"
 
     # prepare protein
     cp protein.pdb ProteinAmber.pdb
     load_gmx
-    gmx_mpi pdb2gmx -ff amber14sb -f ProteinAmber.pdb -o Protein_pdb2gmx.pdb -p Protein.top -ter -water spce -ignh $ss_flag
+    gmx_mpi pdb2gmx -ff amber14sb -f ProteinAmber.pdb -o Protein_pdb2gmx.pdb -p Protein.top -ter -water spce $ss_flag
     unload_gmx
 
     cp Protein_pdb2gmx.pdb Complex.pdb
@@ -137,9 +94,11 @@ case "$SYSTEM" in
         ligand_name=$(basename "$ligand_file")
         ligand_name="${ligand_name%.*}" 
         cp "$ligand_file" "${ligand_name}_H.pdb"
-        /home/clb1e21/.conda/envs/md/bin/pdb4amber -i "${ligand_name}_H.pdb" -o "${ligand_name}.pdb" # clean 
- 
-        /home/clb1e21/.conda/envs/md/bin/acpype -a gaff2 -i "${ligand_name}.pdb" -b "$ligand_name" # parameterise 
+        reduce "$ligand_file" > "${ligand_name}_H.pdb" # add hydrogens to ligand
+        wait  
+        pdb4amber -i "${ligand_name}_H.pdb" -o "${ligand_name}.pdb" # clean 
+        wait
+        acpype -a gaff2 -i "${ligand_name}.pdb" -b "$ligand_name" # parameterise 
         wait
  
         ligand_acpype_dir="${ligand_name}.acpype"
@@ -188,13 +147,27 @@ case "$SYSTEM" in
     load_gmx
     gmx_mpi editconf -f GMX.pdb -o GMX.gro 
     unload_gmx
-    ;;
 
-  *)
-    echo "Error: Unknown SYSTEM type '$SYSTEM'." >&2
-    exit 1
-    ;;
-esac
+elif [[ "$SYSTEM" == "Protein" ]]; then
+
+    load_gmx
+    cd $PDB2GMX_DIR
+    gmx_mpi pdb2gmx -f GMX.pdb -o GMX.gro -p topol.top -chainsep ter -ff $FF_NAME -water tip3p -ter -merge all $ss_flag
+
+    shopt -s nullglob
+
+    itps=( "$PDB2GMX_DIR"/*.itp )
+    if (( ${#itps[@]} )); then
+        cp "$PDB2GMX_DIR"/*.itp "$MINIM1_DIR"
+        cp "$PDB2GMX_DIR"/*.itp "$MINIM2_DIR"
+        cp "$PDB2GMX_DIR"/*.itp "$NVT_DIR"
+        cp "$PDB2GMX_DIR"/*.itp "$NPT_DIR"
+        cp "$PDB2GMX_DIR"/*.itp "$PRODUCTION_DIR"
+        cp "$PDB2GMX_DIR"/*.itp "$GENION_DIR"
+        cp "$PDB2GMX_DIR"/*.itp "$SOLVATE_DIR"
+    fi
+
+fi
 
 #BOX SETUP
 
@@ -256,7 +229,6 @@ echo "Model Dmax:        $MODEL_DMAX nm"
 echo "Experimental Dmax: $DMAX nm"
 echo "Using box padding: $BOX_PADDING nm"
 
-
 load_gmx
 
 # Box selection based on protein shape
@@ -293,7 +265,7 @@ esac
 
 read x_box y_box z_box <<< $(awk 'END{print $1, $2, $3}' 1.gro)
 
-# Center protein
+# Centre protein
 gmx_mpi editconf -f 1.gro -o centered.gro -c 2>&1 | tee editconf.log # centering with -c will become apparant after trjconv with tpr input 
 
 # Solvate
@@ -325,7 +297,7 @@ if [ "$SYSTEM" = "Protein-ligand" ]; then
         sed -i "${force_field_line}a\\
 #include \"${ligand_name}_atomtypes.txt\" " topol.top
     done
-
+    echo "itp stuff done, now copy"
     # 2) Copy all .txt and .itp files into each run directory
     for dir in "$MINIM1_DIR" "$MINIM2_DIR" "$NVT_DIR" "$NPT_DIR" "$PRODUCTION_DIR"; do
         cp *.txt "$dir"
@@ -340,21 +312,21 @@ gmx_mpi grompp -f $MDP_DIR/ions.mdp -c *.gro -p *.top -o ions.tpr -maxwarn 100
 
 echo "SOL" | gmx_mpi genion -s ions.tpr -o *.gro -p *.top -pname Na -nname Cl -neutral -conc 0.15 2>&1 | tee genion_grompp.log 
 
+echo "==> Submitting jobs"
+
 # Energy minimisation
-# Using steepest descent
+# Steepest descent
 JOBID_MINIM1=$(sbatch --parsable -J min1 $PARTITION --export=ALL "$SLURM_DIR/minim1/minim1.slurm" "$SIMULATION_DIR")
 echo "JOBID_MINIM1=${JOBID_MINIM1}"
 
-# Using conjugate gradient
+# Conjugate gradient
 JOBID_MINIM2=$(sbatch --parsable -J min2 $PARTITION --export=ALL --dependency=afterok:${JOBID_MINIM1} "$SLURM_DIR/minim2/minim2.slurm" "$SIMULATION_DIR")
 echo "JOBID_MINIM2=${JOBID_MINIM2}"
-
 
 # Equilibration and production
 
 if [ "$SYSTEM" = "Protein-ligand" ]; then
 
-  echo "==> Submitting jobs"
   JOBID_NVT=$(sbatch --parsable \
     -J nvt \
     $PARTITION \
@@ -408,9 +380,8 @@ if [ "$SYSTEM" = "Protein-ligand" ]; then
   echo "JOBID_MDR2=${JOBID_MDR2}"
   echo "JOBID_MDR3=${JOBID_MDR3}"
 
-elif [ "$SYSTEM" = "Protein" ] || [ "$SYSTEM" = "Intrinsically Disordered Protein" ]; then
+elif [ "$SYSTEM" = "Protein" ]; then
 
-  echo "==> Submitting Protein / IDP jobs…"
   JOBID_NVT=$(sbatch --parsable \
     -J nvt \
     $PARTITION \

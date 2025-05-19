@@ -21,7 +21,7 @@ cd "$REPEAT_DIR3"
 
 load_gmx
 
-mpirun gmx_mpi mdrun -deffnm md 
+mpirun gmx_mpi mdrun -deffnm md -maxh 1 
 
 wait 
 

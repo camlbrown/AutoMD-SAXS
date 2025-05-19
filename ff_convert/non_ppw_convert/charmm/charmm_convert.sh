@@ -1,5 +1,5 @@
 #!/bin/bash
-# Convert pdb to AMBER format
+# Convert pdb for CHARMM forcefield
 
 input_pdb=$1
 
@@ -11,11 +11,9 @@ sed -i '/PEG/d' $input_pdb
 sed -i '/PEG/d' $input_pdb
 sed -i '/BAL/d' $input_pdb
 sed -i '/EDO/d' $input_pdb
-sed -i '/HOH/d' $input_pdb #future option to keep xtal waters
-sed -i '/WAT/d' $input_pdb #future option to keep xtal waters
+sed -i '/HOH/d' $input_pdb
+sed -i '/WAT/d' $input_pdb
 sed -i 's/NMA/NME/g' $input_pdb
 
-python amber_convert.py $input_pdb
-rm $input_pdb
-rm step*
+python charmm_convert.py $input_pdb
 mv converted* GMX.pdb

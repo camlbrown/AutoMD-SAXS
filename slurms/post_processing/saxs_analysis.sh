@@ -29,49 +29,27 @@ echo 'Removing caps'
 sed -i '/ACE/d' structure_*
 sed -i '/NME/d' structure_*
 
-# Check the FORCE_FIELD variable and run the corresponding block
-if [[ "$FORCE_FIELD" == "amber14sb" ]]; then
-    # amber block
-    echo 'Renaming non-standard residues for SAXS analysis'
-    echo 'Renaming HIE/HID/HIP'
-    sed -i 's/HIE/HIS/g' structure_*
-    sed -i 's/HID/HIS/g' structure_*
-    sed -i 's/HIP/HIS/g' structure_*
-    sed -i 's/ASH/ASP/g' structure_*
-    sed -i 's/GLH/GLU/g' structure_*
-    sed -i 's/CYX/CYS/g' structure_*
+FF_NAME="$(basename "$FORCE_FIELD")"
 
-elif [[ "$FORCE_FIELD" == "charmm36m" ]]; then
-    # charmm block
+case "$FF_NAME" in
+  amber14sb)
     echo 'Renaming non-standard residues for SAXS analysis'
-    sed -i 's/HSE/HIS/g' structure_*
-    sed -i 's/HSD/HIS/g' structure_*
-    sed -i 's/HSP/HIS/g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/ASPP/ASP /g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/CD  ILE/CD1 ILE/g' structure_*
-    sed -i '/OT1\|OT2/d' structure_*
-else
-    echo "Unknown FORCE_FIELD: $FORCE_FIELD. Running both amber and charmm blocks."
+    sed -i 's/HIE/HIS/g; s/HID/HIS/g; s/HIP/HIS/g; s/ASH/ASP/g; s/GLH/GLU/g; s/CYX/CYS/g' structure_*
+    ;;
+
+  charmm36m)
     echo 'Renaming non-standard residues for SAXS analysis'
-    sed -i 's/HIE/HIS/g' structure_*
-    sed -i 's/HID/HIS/g' structure_*
-    sed -i 's/HIP/HIS/g' structure_*
-    sed -i 's/ASH/ASP/g' structure_*
-    sed -i 's/GLH/GLU/g' structure_*
-    sed -i 's/CYX/CYS/g' structure_*
-    # charmm block
-    echo 'Renaming non-standard residues for SAXS analysis (charmm block)'
-    sed -i 's/HSE/HIS/g' structure_*
-    sed -i 's/HSD/HIS/g' structure_*
-    sed -i 's/HSP/HIS/g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/ASPP/ASP /g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/CD  ILE/CD1 ILE/g' structure_*
-    sed -i '/OT1\|OT2/d' structure_*
-fi
+    sed -i 's/HSE/HIS/g; s/HSD/HIS/g; s/HSP/HIS/g; s/GLUP/GLU /g; s/ASPP/ASP /g; s/CD  ILE/CD1 ILE/g; /OT1\|OT2/d' structure_*
+    ;;
+
+  *)
+    echo 'Renaming non-standard residues for SAXS analysis'
+    echo '--- AMBER rules ---'
+    sed -i 's/HIE/HIS/g; s/HID/HIS/g; s/HIP/HIS/g; s/ASH/ASP/g; s/GLH/GLU/g; s/CYX/CYS/g' structure_*
+    echo '--- CHARMM rules ---'
+    sed -i 's/HSE/HIS/g; s/HSD/HIS/g; s/HSP/HIS/g; s/GLUP/GLU /g; s/ASPP/ASP /g; s/CD  ILE/CD1 ILE/g; /OT1\|OT2/d' structure_*
+    ;;
+esac
 wait
 
 cd $R2_EXTRACT_FRAMES
@@ -82,49 +60,25 @@ echo 'Removing caps'
 sed -i '/ACE/d' structure_*
 sed -i '/NME/d' structure_*
 
-# Check the FORCE_FIELD variable and run the corresponding block
-if [[ "$FORCE_FIELD" == "amber14sb" ]]; then
-    # amber block
+case "$FF_NAME" in
+  amber14sb)
     echo 'Renaming non-standard residues for SAXS analysis'
-    echo 'Renaming HIE/HID/HIP'
-    sed -i 's/HIE/HIS/g' structure_*
-    sed -i 's/HID/HIS/g' structure_*
-    sed -i 's/HIP/HIS/g' structure_*
-    sed -i 's/ASH/ASP/g' structure_*
-    sed -i 's/GLH/GLU/g' structure_*
-    sed -i 's/CYX/CYS/g' structure_*
+    sed -i 's/HIE/HIS/g; s/HID/HIS/g; s/HIP/HIS/g; s/ASH/ASP/g; s/GLH/GLU/g; s/CYX/CYS/g' structure_*
+    ;;
 
-elif [[ "$FORCE_FIELD" == "charmm36m" ]]; then
-    # charmm block
+  charmm36m)
     echo 'Renaming non-standard residues for SAXS analysis'
-    sed -i 's/HSE/HIS/g' structure_*
-    sed -i 's/HSD/HIS/g' structure_*
-    sed -i 's/HSP/HIS/g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/ASPP/ASP /g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/CD  ILE/CD1 ILE/g' structure_*
-    sed -i '/OT1\|OT2/d' structure_*
-else
-    echo "Unknown FORCE_FIELD: $FORCE_FIELD. Running both amber and charmm blocks."
+    sed -i 's/HSE/HIS/g; s/HSD/HIS/g; s/HSP/HIS/g; s/GLUP/GLU /g; s/ASPP/ASP /g; s/CD  ILE/CD1 ILE/g; /OT1\|OT2/d' structure_*
+    ;;
+
+  *)
     echo 'Renaming non-standard residues for SAXS analysis'
-    sed -i 's/HIE/HIS/g' structure_*
-    sed -i 's/HID/HIS/g' structure_*
-    sed -i 's/HIP/HIS/g' structure_*
-    sed -i 's/ASH/ASP/g' structure_*
-    sed -i 's/GLH/GLU/g' structure_*
-    sed -i 's/CYX/CYS/g' structure_*
-    # charmm block
-    echo 'Renaming non-standard residues for SAXS analysis (charmm block)'
-    sed -i 's/HSE/HIS/g' structure_*
-    sed -i 's/HSD/HIS/g' structure_*
-    sed -i 's/HSP/HIS/g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/ASPP/ASP /g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/CD  ILE/CD1 ILE/g' structure_*
-    sed -i '/OT1\|OT2/d' structure_*
-fi
+    echo '--- AMBER rules ---'
+    sed -i 's/HIE/HIS/g; s/HID/HIS/g; s/HIP/HIS/g; s/ASH/ASP/g; s/GLH/GLU/g; s/CYX/CYS/g' structure_*
+    echo '--- CHARMM rules ---'
+    sed -i 's/HSE/HIS/g; s/HSD/HIS/g; s/HSP/HIS/g; s/GLUP/GLU /g; s/ASPP/ASP /g; s/CD  ILE/CD1 ILE/g; /OT1\|OT2/d' structure_*
+    ;;
+esac
 wait
 
 
@@ -136,65 +90,42 @@ echo 'Removing caps'
 sed -i '/ACE/d' structure_*
 sed -i '/NME/d' structure_*
 
-# Check the FORCE_FIELD variable and run the corresponding block
-if [[ "$FORCE_FIELD" == "amber14sb" ]]; then
-    # amber block
+case "$FF_NAME" in
+  amber14sb)
     echo 'Renaming non-standard residues for SAXS analysis'
-    echo 'Renaming HIE/HID/HIP'
-    sed -i 's/HIE/HIS/g' structure_*
-    sed -i 's/HID/HIS/g' structure_*
-    sed -i 's/HIP/HIS/g' structure_*
-    sed -i 's/ASH/ASP/g' structure_*
-    sed -i 's/GLH/GLU/g' structure_*
-    sed -i 's/CYX/CYS/g' structure_*
+    sed -i 's/HIE/HIS/g; s/HID/HIS/g; s/HIP/HIS/g; s/ASH/ASP/g; s/GLH/GLU/g; s/CYX/CYS/g' structure_*
+    ;;
 
-elif [[ "$FORCE_FIELD" == "charmm36m" ]]; then
-    # charmm block
+  charmm36m)
     echo 'Renaming non-standard residues for SAXS analysis'
-    sed -i 's/HSE/HIS/g' structure_*
-    sed -i 's/HSD/HIS/g' structure_*
-    sed -i 's/HSP/HIS/g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/ASPP/ASP /g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/CD  ILE/CD1 ILE/g' structure_*
-    sed -i '/OT1\|OT2/d' structure_*
-else
-    echo "Unknown FORCE_FIELD: $FORCE_FIELD. Running both amber and charmm blocks."
+    sed -i 's/HSE/HIS/g; s/HSD/HIS/g; s/HSP/HIS/g; s/GLUP/GLU /g; s/ASPP/ASP /g; s/CD  ILE/CD1 ILE/g; /OT1\|OT2/d' structure_*
+    ;;
+
+  *)
     echo 'Renaming non-standard residues for SAXS analysis'
-    sed -i 's/HIE/HIS/g' structure_*
-    sed -i 's/HID/HIS/g' structure_*
-    sed -i 's/HIP/HIS/g' structure_*
-    sed -i 's/ASH/ASP/g' structure_*
-    sed -i 's/GLH/GLU/g' structure_*
-    sed -i 's/CYX/CYS/g' structure_*
-    # charmm block
-    echo 'Renaming non-standard residues for SAXS analysis (charmm block)'
-    sed -i 's/HSE/HIS/g' structure_*
-    sed -i 's/HSD/HIS/g' structure_*
-    sed -i 's/HSP/HIS/g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/ASPP/ASP /g' structure_*
-    sed -i 's/GLUP/GLU /g' structure_*
-    sed -i 's/CD  ILE/CD1 ILE/g' structure_*
-    sed -i '/OT1\|OT2/d' structure_*
-fi
+    echo '--- AMBER rules ---'
+    sed -i 's/HIE/HIS/g; s/HID/HIS/g; s/HIP/HIS/g; s/ASH/ASP/g; s/GLH/GLU/g; s/CYX/CYS/g' structure_*
+    echo '--- CHARMM rules ---'
+    sed -i 's/HSE/HIS/g; s/HSD/HIS/g; s/HSP/HIS/g; s/GLUP/GLU /g; s/ASPP/ASP /g; s/CD  ILE/CD1 ILE/g; /OT1\|OT2/d' structure_*
+    ;;
+esac
+
 wait
 
 # SAXS CALCULATIONS 
 
-# shanum
+# SHANUM
 shanum_output="$(shanum "$SAXS_DIR"/*.dat 2>&1)"
-
-# Extract the first line containing "Smax="
 SMAX=$(printf '%s\n' "$shanum_output" \
     | grep 'Smax=' \
     | head -1 \
     | sed -E 's/.*Smax=[[:space:]]*//')
-
+SMAX="$(printf '%s' "$SMAX" | tr -d '[:space:]')"
 SMAX=$(printf "%.2f" "$SMAX")
+
 export SMAX
 echo "Detected Smax = $SMAX"
+
 
 
 cd $R1_EXTRACT_FRAMES 

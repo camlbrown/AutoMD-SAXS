@@ -5,7 +5,6 @@
 #SBATCH --time=02:00:00
 #SBATCH --partition=batch
 
-
 # Source the configurations.txt file in the specified simulation directory
 SIMULATION_DIR="$1"
 config_file="$SIMULATION_DIR/configurations.txt"

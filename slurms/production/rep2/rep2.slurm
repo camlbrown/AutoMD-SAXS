@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --ntasks-per-node=40
-#SBATCH --nodes=4
-#SBATCH --time=60:00:00
+#SBATCH --nodes=1
+#SBATCH --time=01:10:00
 #SBATCH --partition=batch
 
 SIMULATION_DIR="$1"
@@ -21,7 +21,7 @@ cd "$REPEAT_DIR2"
 
 load_gmx
 
-mpirun gmx_mpi mdrun -deffnm md -maxh 59
+mpirun gmx_mpi mdrun -deffnm md -maxh 1
 
 wait
 
