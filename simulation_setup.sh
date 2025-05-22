@@ -334,7 +334,7 @@ echo ""
 
 # Ionic strength
 
-echo "Choose your ionic concentration (mM) e.g. 0.15 "
+echo "Choose your ionic concentration (M) e.g. 0.15 is physiological salt concentration"
 echo ""
 echo "Note: if integrating SAXS data into the simulation analysis, please use the experimental concentration"
 echo ""
