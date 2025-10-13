@@ -1,5 +1,4 @@
 #!/bin/bash
-#Simulation setup 
 
 echo "                _        __  __ _____         _____         __   __ _____ 
      /\        | |      |  \/  |  __ \       / ____|  /\    \ \ / // ____|
@@ -45,6 +44,7 @@ if [[ "$1" == "-help" || "$1" == "-h" ]]; then
   exit 0
 fi
 
+# Determine the directory this script lives in
 BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 PROTEIN_FILE=""
@@ -98,6 +98,10 @@ echo "Welcome to your MD simulation setup!"
 echo ""
 echo "Protein file = $PROTEIN_FILE"
 echo "SAXS file = $SAXS_FILE"
+echo ""
+echo "Please select your system type:"
+echo ""
+echo "Note: if your protein exhibits high levels of flexibility or contains intrinsically disordered regions, please select '2) Intrinsically Disordered Protein'" 
 echo ""
 
 # Directory structure 
@@ -174,6 +178,7 @@ if [[ "$SAXS_FILE" != "None" ]]; then
 fi
 
 # MD SETUP
+
 # GROMACS
 
 config_file="$SIMULATION_DIR/configurations.txt"
@@ -219,10 +224,10 @@ echo ""
 
 # System setup
 
+# 1) System type & (conditionally) force‐field choice
 echo "Select system type:"
 echo "  1) Protein"
 echo "  2) Protein-ligand"
-echo ""
 read -rp "Enter 1 or 2: " sys_choice
 
 case "$sys_choice" in
@@ -232,10 +237,10 @@ case "$sys_choice" in
     echo "You chose: $SYSTEM"
     echo ""
 
+    # Now ask the force‐field for Protein
     echo "Select your force field:"
     echo "  1) amber14sb"
     echo "  2) charmm36m"
-    echo ""
     read -rp "Enter 1 or 2: " ff_choice
 
     case "$ff_choice" in
@@ -248,7 +253,7 @@ case "$sys_choice" in
         FF_CONVERT_SUBDIR="charmm"
         ;;
       *)
-        echo "Invalid force field choice; please run again." >&2
+        echo "Invalid force‐field choice; please run again." >&2
         exit 1
         ;;
     esac
@@ -259,7 +264,7 @@ case "$sys_choice" in
     echo "You chose: $SYSTEM"
     echo ""
 
-    # For protein-ligand always use amber14sb
+    # For Protein-ligand always use amber14sb
     export FORCE_FIELD="$FORCE_FIELD_DIR/amber14sb"
     FF_CONVERT_SUBDIR="amber"
     ;;
@@ -269,9 +274,58 @@ case "$sys_choice" in
     ;;
 esac
 
-echo ""
 echo "Using force field: $FORCE_FIELD"
 echo ""
+
+
+
+
+
+
+
+
+
+#echo "Select system type:"
+#echo "  1) Protein"
+#echo "  2) Protein-ligand"
+#read -rp "Enter 1 or 2: " sys_choice
+#
+#case "$sys_choice" in
+#  1) SYSTEM="Protein"        ;;
+#  2) SYSTEM="Protein-ligand" ;;
+#  *)
+#    echo "Invalid choice; please run again and pick 1 or 2." >&2
+#    exit 1
+#    ;;
+#esac
+#export SYSTEM
+#echo "System type set to: $SYSTEM"
+#echo ""
+
+
+# Force-field choice 
+#echo "Select your force field:"
+#echo "  1) amber14sb"
+#echo "  2) charmm36m"
+#read -rp "Enter 1 or 2: " ff_choice
+
+#case "$ff_choice" in
+#  1)
+#    export FORCE_FIELD="$FORCE_FIELD_DIR/amber14sb"
+#    FF_CONVERT_SUBDIR="amber"
+#    ;;
+#  2)
+#    export FORCE_FIELD="$FORCE_FIELD_DIR/charmm36m"
+#    FF_CONVERT_SUBDIR="charmm"
+#    ;;
+#  *)
+#    echo "Invalid choice; please run again and pick 1 or 2." >&2
+#    exit 1
+#    ;;
+#esac
+
+#echo "Using force field: $FORCE_FIELD"
+#echo ""
 
 # Protein Preparation Wizard check 
 read -rp "Did you use the Protein Preparation Wizard to prepare your system for MD? (y/N) " ppw_ans
@@ -282,7 +336,7 @@ else
 fi
 echo "PPW set to: $PPW"
 
-# Pick the right path for conversion scripts 
+# Pick the right conversion directory root 
 if [[ "$PPW" = "yes" ]]; then
   CONVERT_ROOT="$FF_CONVERT"
 else
@@ -302,21 +356,22 @@ else
   sh charmm_convert.sh "$PROTEIN_FILE"
 fi
 
+# Copy the generated GMX.pdb into your workflow
 cp GMX.pdb "$SIMULATION_DIR"
 cp GMX.pdb "$PDB2GMX_DIR"
 cp GMX.pdb "$LIGAND_SETUP"
 rm GMX.pdb
 
+
 popd >/dev/null
 echo "Conversion complete."
 echo ""
 
-# Box-shape 
 
+# Box-shape 
 echo "Now choose your box shape:"
-echo "  1) Dodecahedron (globular particles)"
-echo "  2) Rectangular (anisotropic rod-shaped particles)"
-echo ""
+echo "  1) Globular (dodecahedron)"
+echo "  2) Anisotropic (rectangular)"
 read -rp "Enter 1 or 2: " box_choice
 
 case "$box_choice" in
@@ -336,7 +391,7 @@ echo ""
 
 echo "Choose your ionic concentration (M) e.g. 0.15 is physiological salt concentration"
 echo ""
-echo "Note: if integrating SAXS data into the simulation analysis, please use the experimental concentration"
+echo "Note: if integrating SAXS data into the simulation, please use the experimental concentration"
 echo ""
 
 valid_input=false
@@ -377,7 +432,6 @@ done
 if [[ "$SAXS_FILE" != "None" ]]; then
 
   # Dmax
-  echo ""
   echo "What is the maximum scattering dimension (Dmax) described by the experimental SAXS data?"
   echo ""
   echo "Note: if unknown please enter the largest dimension described by your protein model"
@@ -424,6 +478,7 @@ while [ "$valid_input" = false ]; do
         echo "Error: Please enter either 'yes' (y) or 'no' (n)."
     fi
 done
+
 
 echo ""
 echo "---------------------------------------------------------------------"
@@ -513,6 +568,6 @@ Configurations file has been created: $config_file
 Please check your system settings are correct in $SIMULATION_DIR/configurations.txt prior to executing 'run_MD.sh'
 
 If you are happy with your configurations, run MD using:
-"sh run_MD.sh '$PROTEIN_NAME'_simulation"  
+"sh run_MD.sh <input_pdb>_simulation"  
 EOM
 

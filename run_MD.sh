@@ -1,9 +1,10 @@
 #!/bin/bash
 
-#-----------------MD RUN SCRIPT------------------
+#-----------------MD RUN SCRIPT-----------------
 
 # General housekeeping
 set -euo pipefail
+
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <simulation_directory>"
@@ -47,9 +48,10 @@ else
 fi
 
 # Convert simulation time from nanoseconds to number of steps
-# for a timestep of 2fs
+# Assuming a time step of 2fs
 # 1 nanosecond = 500,000 timesteps
 number_of_steps=$(( SIMULATION_TIME * 500000 ))
+
 
 # Choose the prod .mdp file for step editing based on SYSTEM
 if [ "$SYSTEM" = "Protein-ligand" ]; then
@@ -65,7 +67,7 @@ fi
 sed -i "s/nsteps[[:space:]]*=[[:space:]]*[0-9]*[[:space:]]*;/nsteps                  = $number_of_steps ;/" "$TIMESTEP"
 echo "Updated number of steps in $(basename "$TIMESTEP") to $number_of_steps"
 
-# Generate topology 
+
 if [[ "$SYSTEM" == "Protein-ligand" ]]; then
 
     # copy and split out ligand/protein
@@ -77,7 +79,7 @@ if [[ "$SYSTEM" == "Protein-ligand" ]]; then
     # prepare protein
     cp protein.pdb ProteinAmber.pdb
     load_gmx
-    gmx_mpi pdb2gmx -ff amber14sb -f ProteinAmber.pdb -o Protein_pdb2gmx.pdb -p Protein.top -ter -water spce $ss_flag
+    gmx_mpi pdb2gmx -ff amber14sb -f ProteinAmber.pdb -o Protein_pdb2gmx.pdb -p Protein.top -ter -water spce -ignh $ss_flag
     unload_gmx
 
     cp Protein_pdb2gmx.pdb Complex.pdb
@@ -94,7 +96,7 @@ if [[ "$SYSTEM" == "Protein-ligand" ]]; then
         ligand_name=$(basename "$ligand_file")
         ligand_name="${ligand_name%.*}" 
         cp "$ligand_file" "${ligand_name}_H.pdb"
-        reduce "$ligand_file" > "${ligand_name}_H.pdb" # add hydrogens to ligand
+        reduce "$ligand_file" > "${ligand_name}_H.pdb" # Add hydrogens to ligand
         wait  
         pdb4amber -i "${ligand_name}_H.pdb" -o "${ligand_name}.pdb" # clean 
         wait
@@ -147,6 +149,8 @@ if [[ "$SYSTEM" == "Protein-ligand" ]]; then
     load_gmx
     gmx_mpi editconf -f GMX.pdb -o GMX.gro 
     unload_gmx
+
+
 
 elif [[ "$SYSTEM" == "Protein" ]]; then
 
@@ -228,6 +232,7 @@ fi
 echo "Model Dmax:        $MODEL_DMAX nm"
 echo "Experimental Dmax: $DMAX nm"
 echo "Using box padding: $BOX_PADDING nm"
+
 
 load_gmx
 
@@ -313,15 +318,15 @@ gmx_mpi grompp -f $MDP_DIR/ions.mdp -c *.gro -p *.top -o ions.tpr -maxwarn 100
 echo "SOL" | gmx_mpi genion -s ions.tpr -o *.gro -p *.top -pname Na -nname Cl -neutral -conc 0.15 2>&1 | tee genion_grompp.log 
 
 echo "==> Submitting jobs"
-
 # Energy minimisation
-# Steepest descent
+# Using steepest descent
 JOBID_MINIM1=$(sbatch --parsable -J min1 $PARTITION --export=ALL "$SLURM_DIR/minim1/minim1.slurm" "$SIMULATION_DIR")
 echo "JOBID_MINIM1=${JOBID_MINIM1}"
 
-# Conjugate gradient
+# Using conjugate gradient
 JOBID_MINIM2=$(sbatch --parsable -J min2 $PARTITION --export=ALL --dependency=afterok:${JOBID_MINIM1} "$SLURM_DIR/minim2/minim2.slurm" "$SIMULATION_DIR")
 echo "JOBID_MINIM2=${JOBID_MINIM2}"
+
 
 # Equilibration and production
 
