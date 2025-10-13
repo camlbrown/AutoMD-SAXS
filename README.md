@@ -57,12 +57,12 @@ sh run_MD.sh *Protein*_simulation/
 ```bash
 ff_convert/
 ```
-Invoked by ```simulation_setup.sh```. Contains scripts that recast the input PDB’s atom names and residue labels into the conventions required by the AMBER and CHARMM force fields. 
+Contains scripts that recast the input PDB’s atom names and residue labels into the conventions required by the AMBER and CHARMM force fields. 
 
 ```bash
 slurms/ 
 ```
-Invoked by ```run_MD.sh```. Holds all of the Slurm submission scripts that drive the pipeline. Users can modify the #SBATCH lines of these scripts to fit their own cluster’s scheduler settings or resource requirements.
+Holds all of the Slurm submission scripts that drive the pipeline. Users can modify the #SBATCH lines of these scripts to fit their own cluster’s scheduler settings or resource requirements.
 
 ```bash
 mdp_files/
