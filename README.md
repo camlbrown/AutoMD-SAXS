@@ -30,7 +30,7 @@ For full documentation please read AutoMD_SAXS_Manual.pdf
 
 ### File requirements
 - ```*Protein*.pdb```
-- ```*SAXS*.dat```
+- ```*SAXS*.dat``` (optional)
 
 Note: Both files must be present within the AutoMD-SAXS directory
 
