@@ -78,7 +78,7 @@ Contains end-to-end demonstrations of every major workflow variant supported:
 - Force fields: CHARMM36M or AMBER14SB
 - SAXS: with and without experimental SAXS data integration
 
-## Citation
+## Citation - pending 
 
 If you use AutoMD-SAXS in your research...
 
@@ -87,7 +87,7 @@ If you use AutoMD-SAXS in your research...
   title={},
   author={},
   journal={},
-  year={2025},
+  year={},
   doi={},
   url={}
 }
