@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Job outputs (generated simulation directories)
+*_simulation/

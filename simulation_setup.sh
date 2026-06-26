@@ -168,6 +168,16 @@ for i in 1 2 3; do
   export "$ext_var"="$ext_dir"
 done
 
+# Use a per-job copy of the .mdp templates. run_MD.sh parameterises the
+# production .mdp at run time; the legacy script edited the git-tracked template
+# in $BASE_DIR/mdp_files in place. Copying here keeps the templates pristine, and
+# because every Slurm script reads $MDP_DIR they transparently use this copy.
+MDP_SOURCE="$BASE_DIR/mdp_files"
+MDP_DIR="$SIMULATION_DIR/mdp_files"
+mkdir -p "$MDP_DIR"
+cp "$MDP_SOURCE"/*.mdp "$MDP_DIR"/
+export MDP_DIR
+
 # Copy SAXS data if provided
 if [[ "$SAXS_FILE" != "None" ]]; then
   mkdir -p "$SAXS_DIR"
@@ -560,6 +570,22 @@ echo "SIMULATION_TIME=$simulation_time" >> "$config_file"
 echo "DISULFIDE=$disulfide" >> "$config_file"
 echo "SAXS_FILE=$SAXS_FILE" >> "$config_file"
 echo "DMAX=$dmax" >> "$config_file"
+echo ""
+
+# Validate the generated configuration with the Python package before the user
+# runs run_MD.sh. Non-fatal: a preview only, so setup still succeeds if the
+# package is unavailable.
+echo "Validating configuration with automd_saxs..."
+PDB_ARG=()
+[ -f "$PDB2GMX_DIR/GMX.pdb" ] && PDB_ARG=(--pdb "$PDB2GMX_DIR/GMX.pdb")
+PYTHONPATH="$BASE_DIR${PYTHONPATH:+:$PYTHONPATH}" "${python_cmd:-python3}" \
+  -m automd_saxs plan \
+  --config "$config_file" \
+  --work-dir "$BASE_DIR" \
+  --slurm-dir "$SLURM_DIR" \
+  --mdp-dir "$MDP_DIR" \
+  "${PDB_ARG[@]}" \
+  || echo "(validation preview unavailable; ensure the automd_saxs package is importable)"
 echo ""
 
 cat <<EOM

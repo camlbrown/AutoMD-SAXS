@@ -6,22 +6,36 @@
 set -euo pipefail
 
 
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <simulation_directory>"
+# Parse arguments. A new optional --dry-run flag delegates validation and
+# command planning to the Python package (automd_saxs) without running GROMACS,
+# ATSAS, or Slurm. Everything else is unchanged.
+DRY_RUN=0
+POSITIONAL=()
+for arg in "$@"; do
+  case "$arg" in
+    -h|-help|--help)
+      cat <<EOM
+Automated MD with GROMACS
+
+Usage: bash run_MD.sh <simulation_directory> [--dry-run]
+
+Run only after setting up your simulation with simulation_setup.sh.
+  --dry-run   Validate the configuration and print the planned commands
+              (GROMACS setup, Slurm DAG, directories) without executing
+              anything. Requires the automd_saxs Python package on PYTHONPATH.
+EOM
+      exit 0
+      ;;
+    --dry-run) DRY_RUN=1 ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
+done
+
+if [ "${#POSITIONAL[@]}" -ne 1 ]; then
+    echo "Usage: $0 <simulation_directory> [--dry-run]"
     exit 1
 fi
-
-if [[ "$1" == "-help" || "$1" == "-h" ]]; then
-  echo "Automated MD with GROMACS"
-  echo ""
-  cat <<EOM
-Run md.sh only after setting up your simulation with simulation_setup.sh
-
-Usage: "./bash md.sh <simulation_directory>"
-E.g. After setting up your system with "./bash simulation_setup.sh protein.pdb", you would run "bash md.sh protein" to simulate. 
-EOM
-  exit 0
-fi
+set -- "${POSITIONAL[@]}"
 
 SIMULATION_DIR="$1"
 
@@ -38,6 +52,23 @@ GMXLIB="$BASE_DIR/ff_files"
 export GMXLIB
 FF_NAME=${FORCE_FIELD##*/}
 
+# Dry-run: delegate validation and command planning to the Python package and
+# exit before touching GROMACS/Slurm. Lets the workflow be inspected on machines
+# without the scientific binaries installed.
+if [ "$DRY_RUN" -eq 1 ]; then
+  DRY_PDB="$SIMULATION_DIR/pdb2gmx/GMX.pdb"
+  PDB_ARG=()
+  [ -f "$DRY_PDB" ] && PDB_ARG=(--pdb "$DRY_PDB")
+  PYTHONPATH="$BASE_DIR${PYTHONPATH:+:$PYTHONPATH}" "${PYTHON_CMD:-python3}" \
+    -m automd_saxs plan \
+    --config "$config_file" \
+    --work-dir "$BASE_DIR" \
+    --slurm-dir "$SLURM_DIR" \
+    --mdp-dir "$MDP_DIR" \
+    "${PDB_ARG[@]}"
+  exit $?
+fi
+
 # Conditional setup
 
 # Check if DISULFIDE is set to 'y' or 'yes'
@@ -47,13 +78,7 @@ else
     ss_flag=""
 fi
 
-# Convert simulation time from nanoseconds to number of steps
-# Assuming a time step of 2fs
-# 1 nanosecond = 500,000 timesteps
-number_of_steps=$(( SIMULATION_TIME * 500000 ))
-
-
-# Choose the prod .mdp file for step editing based on SYSTEM
+# Choose the production .mdp file based on SYSTEM
 if [ "$SYSTEM" = "Protein-ligand" ]; then
     TIMESTEP="$MDP_DIR/lig_md.mdp"
 elif [ "$SYSTEM" = "Protein" ]; then
@@ -63,9 +88,16 @@ else
     exit 1
 fi
 
-# Update nsteps in mdp
-sed -i "s/nsteps[[:space:]]*=[[:space:]]*[0-9]*[[:space:]]*;/nsteps                  = $number_of_steps ;/" "$TIMESTEP"
-echo "Updated number of steps in $(basename "$TIMESTEP") to $number_of_steps"
+# Set the production step count (and dt) from the configuration. Rendered with
+# the Python package instead of an in-place `sed -i`, which previously mutated
+# the git-tracked template on every run. $MDP_DIR is now a per-job copy (created
+# by simulation_setup.sh), so rendering in place here is safe and reproducible.
+PYTHONPATH="$BASE_DIR${PYTHONPATH:+:$PYTHONPATH}" "${PYTHON_CMD:-python3}" \
+  -m automd_saxs render-mdp \
+  --template "$TIMESTEP" \
+  --out "$TIMESTEP" \
+  --config "$config_file"
+echo "Rendered production parameters into $(basename "$TIMESTEP") (nsteps from SIMULATION_TIME=$SIMULATION_TIME ns)"
 
 
 if [[ "$SYSTEM" == "Protein-ligand" ]]; then
@@ -185,49 +217,17 @@ fi
 
 DMAX_PDB_FILE="$SIMULATION_DIR/pdb2gmx/GMX.pdb"
 
-# Extract model dmax 
-MODEL_DMAX=$(python3 - << EOF
-import numpy as np
-from scipy.spatial.distance import pdist
-
-coords = []
-with open("$DMAX_PDB_FILE","r") as f:
-    for line in f:
-        if line.startswith("ATOM"):
-            try:
-                x,y,z = map(float,[line[30:38], line[38:46], line[46:54]])
-                coords.append((x,y,z))
-            except ValueError:
-                continue
-
-coords = np.array(coords)
-model_dmax = (np.max(pdist(coords)) if coords.shape[0]>1 else 0.0)/10.0
-print(f"{model_dmax:.3f}")
-EOF
-)
-
-if [[ ! "$MODEL_DMAX" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Error: Could not determine Model Dmax!"
+# Compute model Dmax and solvation box padding via the Python package. This
+# replaces an inline numpy/scipy heredoc plus `bc` arithmetic (both untested and
+# duplicated). The subcommand prints MODEL_DMAX / EFFECTIVE_DMAX / BOX_PADDING as
+# numeric shell assignments; "$DMAX" may be a number or the literal "Model".
+dmax_out=$(PYTHONPATH="$BASE_DIR${PYTHONPATH:+:$PYTHONPATH}" "${PYTHON_CMD:-python3}" \
+  -m automd_saxs dmax --pdb "$DMAX_PDB_FILE" --experimental "$DMAX") || {
+    echo "Error: Could not determine box padding from $DMAX_PDB_FILE" >&2
     exit 1
-fi
-
-if [[ "$DMAX" == "Model" ]]; then
-    echo "No experimental SAXS Dmax provided; using model Dmax of $MODEL_DMAX nm."
-    DMAX="$MODEL_DMAX"
-fi
-
-if [[ ! "$DMAX" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Error: DMAX is not a valid number: $DMAX"
-    exit 1
-fi
-
-# Absolute difference between expt and box dmax + 2 nm buffer
-BOX_PADDING=$(echo "scale=3; sqrt(($DMAX - $MODEL_DMAX)^2) + 2" | bc -l)
-
-# minimum padding of 2 nm
-if (( $(echo "$BOX_PADDING < 2" | bc -l) )); then
-    BOX_PADDING=2
-fi
+}
+eval "$dmax_out"
+DMAX="$EFFECTIVE_DMAX"
 
 echo "Model Dmax:        $MODEL_DMAX nm"
 echo "Experimental Dmax: $DMAX nm"
@@ -315,7 +315,9 @@ fi
 
 gmx_mpi grompp -f $MDP_DIR/ions.mdp -c *.gro -p *.top -o ions.tpr -maxwarn 100 
 
-echo "SOL" | gmx_mpi genion -s ions.tpr -o *.gro -p *.top -pname Na -nname Cl -neutral -conc 0.15 2>&1 | tee genion_grompp.log 
+# Use the user-selected ionic concentration. The legacy script hardcoded
+# -conc 0.15, silently ignoring IONIC_CONCENTRATION from configurations.txt.
+echo "SOL" | gmx_mpi genion -s ions.tpr -o *.gro -p *.top -pname Na -nname Cl -neutral -conc "${IONIC_CONCENTRATION:-0.15}" 2>&1 | tee genion_grompp.log
 
 echo "==> Submitting jobs"
 # Energy minimisation

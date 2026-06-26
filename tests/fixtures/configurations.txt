@@ -1,0 +1,25 @@
+# GROMACS Module Management
+GMX_MODULE="gromacs/2021.2/intel"
+load_gmx()   { module load "$GMX_MODULE"; }
+unload_gmx() { module unload "$GMX_MODULE"; }
+
+PYTHON_CMD="/home/you/.conda/envs/automdsaxs/bin/python"
+EMAIL_ADDR="scientist@example.org"
+PARTITION="--partition=batch"
+
+#Simulation variables
+BASE_DIR=/home/you/AutoMD-SAXS
+FF_CONVERT=/home/you/AutoMD-SAXS/ff_convert
+SIMULATION_DIR=/home/you/AutoMD-SAXS/1AKI_simulation
+MINIM1_DIR=/home/you/AutoMD-SAXS/1AKI_simulation/minim1
+NVT_DIR=/home/you/AutoMD-SAXS/1AKI_simulation/nvt
+FORCE_FIELD_DIR=/home/you/AutoMD-SAXS/ff_files
+FORCE_FIELD=/home/you/AutoMD-SAXS/ff_files/amber14sb
+BOX_SHAPE=dodecahedron
+PROTEIN_FILE=1AKI.pdb
+SYSTEM=Protein
+IONIC_CONCENTRATION=0.2
+SIMULATION_TIME=50
+DISULFIDE=yes
+SAXS_FILE=1AKI.dat
+DMAX=6.5

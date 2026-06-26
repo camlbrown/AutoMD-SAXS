@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "automd_saxs"
+version = "0.0.1"
+description = "All-atom MD + SAXS refinement workflow (Phase 1 refactor of the legacy GROMACS/ATSAS/Slurm pipeline)."
+readme = "README.md"
+requires-python = ">=3.8"
+# Runtime science deps (numpy, scipy, mdanalysis, ...) are pinned in
+# automdsaxs.yml. dmax.py works with or without numpy so the core logic is
+# testable in a bare interpreter; heavier modules added later may require them.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools]
+packages = ["automd_saxs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
