@@ -110,6 +110,46 @@ def frame_index(model_name: str):
 # Summary
 # --------------------------------------------------------------------------- #
 
+def run_foxs_fits(frame_pdbs, experimental_dat, runner, cwd=None):
+    """Fit each frame to experimental data via the runner; parse chi^2 (real runs).
+
+    In dry-run the commands are recorded and an empty record list is returned. In
+    a real run, after each ``foxs`` call the produced fit file (``<frame>.dat`` /
+    ``<frame>.fit`` in ``cwd``) is parsed for chi^2. Returns per-frame records
+    ``{model, frame, chi2, fitFile}``.
+    """
+    import glob
+    import os
+
+    records = []
+    for pdb in frame_pdbs:
+        argv = foxs_fit_command(experimental_dat, pdb)
+        runner.run(argv, label="foxs:{0}".format(os.path.basename(pdb)), cwd=cwd)
+        if runner.dry_run:
+            continue
+        base = os.path.basename(pdb)
+        search_dir = cwd or os.path.dirname(pdb) or "."
+        candidates = (glob.glob(os.path.join(search_dir, base + "*.fit"))
+                      + glob.glob(os.path.join(search_dir, base + "*.dat")))
+        chi2 = None
+        fit_file = candidates[0] if candidates else None
+        if fit_file:
+            with open(fit_file) as fh:
+                chi2 = parse_foxs_fit(fh.read()).get("chi2")
+        records.append({"model": base, "frame": frame_index(base),
+                        "chi2": chi2, "fitFile": fit_file})
+    return records
+
+
+def run_multifoxs(profiles, experimental_dat, runner, output, cwd=None):
+    """Run MultiFoXS ensemble selection over profile files via the runner."""
+    import os
+
+    argv = multifoxs_command(experimental_dat, profiles, output=output)
+    runner.run(argv, label="multifoxs", cwd=cwd)
+    return output
+
+
 def best_fit(records: List[Dict[str, object]]) -> Optional[Dict[str, object]]:
     """Record with the lowest chi^2 (records with chi2 None are ignored)."""
     scored = [r for r in records if r.get("chi2") is not None]

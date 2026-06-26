@@ -5,9 +5,12 @@ config without importing OpenMM. :class:`Workflow` runs the stages; it imports t
 MD/prep layers lazily so a real run requires OpenMM but planning does not.
 """
 
+import os
 from typing import List, Tuple
 
-from ..manifest import Manifest, STATUS_PLANNED, STATUS_COMPLETED, STATUS_RUNNING
+from ..command_runner import CommandRunner, MissingDependencyError
+from ..manifest import Manifest, STATUS_PLANNED, STATUS_COMPLETED, STATUS_RUNNING, STATUS_FAILED
+from .paths import OpenMMPaths
 from .schema import OpenMMConfig
 
 PIPELINE_NAME = "automd-saxs-openmm"
@@ -84,14 +87,112 @@ class Workflow:
         return plan_stages(self.config)
 
     def run(self):
-        """Execute the pipeline (requires OpenMM/FoXS). Not yet implemented end-to-end.
+        """Prepare the job and run (or, in dry-run, plan) the OpenMM pipeline.
 
-        Planning is available now via :func:`plan_stages`; the executing stages
-        (:mod:`automd_saxs.openmm.prepare`, :mod:`automd_saxs.openmm.md`) import
-        OpenMM lazily and raise a clear error if it is absent.
+        Always performs local orchestration (create dirs, write job.json + a
+        manifest). In dry-run it records the planned stages and the FoXS/MultiFoXS
+        commands without importing OpenMM. In a real run it executes the OpenMM MD
+        stages, frame extraction, SAXS fitting, and clustering -- these import
+        OpenMM/mdtraj/FoXS lazily and run inside the BilboMD image in Phase 3.
+        Returns a result dict; on failure writes a ``failed`` manifest and raises.
         """
-        from . import prepare, md  # noqa: F401  (lazy: imports OpenMM)
+        cfg = self.config
+        paths = OpenMMPaths(self.work_dir, cfg.job_name, cfg.n_repeats)
+        paths.create()
+        with open(paths.config_path, "w") as handle:
+            handle.write(cfg.to_json())
 
-        raise NotImplementedError(
-            "End-to-end OpenMM execution is under development. Use plan_stages() "
-            "for the dry-run plan; prepare/md provide the OpenMM-backed stages.")
+        manifest = new_manifest(cfg, STATUS_PLANNED if self.dry_run else STATUS_RUNNING)
+        runner = CommandRunner(dry_run=self.dry_run)
+
+        if self.dry_run:
+            from . import foxs
+            for name, _ in plan_stages(cfg):
+                if name == "foxs":
+                    # attach a representative command (frames not yet present)
+                    manifest.add_step("foxs", command=foxs.foxs_fit_command(
+                        cfg.saxs, os.path.join(paths.frames_dir, "structure_<i>.pdb")))
+                elif name == "multifoxs":
+                    manifest.add_step("multifoxs", command=foxs.multifoxs_command(
+                        cfg.saxs, [os.path.join(paths.frames_dir, "structure_<i>.pdb.dat")],
+                        output=os.path.join(paths.ensemble_dir, "ensemble.dat")))
+                else:
+                    manifest.add_step(name)
+            manifest.write(paths.manifest_path)
+            return {"status": "planned", "job_dir": paths.job_dir,
+                    "manifest": paths.manifest_path, "stages": [n for n, _ in plan_stages(cfg)]}
+
+        try:
+            return self._execute(cfg, paths, manifest, runner)
+        except Exception as exc:  # noqa: BLE001 - record then re-raise
+            manifest.set_status(STATUS_FAILED).add_note(str(exc))
+            manifest.write(paths.manifest_path)
+            raise
+
+    def _execute(self, cfg, paths, manifest, runner):
+        from . import prepare, md, frames, foxs
+        from .. import structural
+
+        # 1. structure preparation + solvation
+        audit = prepare.prepare_structure(cfg, cfg.pdb, paths.prepared_pdb)
+        manifest.add_step("prepare_structure", status=STATUS_COMPLETED)
+        manifest.set_parameter("prepAudit", audit)
+        padding = prepare.resolve_box_padding(cfg, cfg.pdb)
+        manifest.set_parameter("boxPaddingNm", padding)
+        prepare.solvate(cfg, paths.prepared_pdb, paths.solvated_pdb, padding)
+        manifest.add_step("solvate", status=STATUS_COMPLETED)
+
+        # 2. minimise + equilibrate
+        min_result = md.minimize(cfg, paths.solvated_pdb, paths.minimized_pdb)
+        manifest.add_step("minimize", status=STATUS_COMPLETED)
+        manifest.set_parameter("minimizedEnergyKJ", min_result["potentialEnergyKJ"])
+        md.equilibrate(cfg, paths.minimized_pdb, paths.equilibrated_state)
+        manifest.add_step("equilibrate", status=STATUS_COMPLETED)
+
+        # 3. production repeats
+        trajectories = []
+        for i in range(1, cfg.n_repeats + 1):
+            md.production(cfg, paths.equilibrated_state, paths.minimized_pdb,
+                          paths.repeat_trajectory(i), paths.repeat_log(i))
+            trajectories.append(paths.repeat_trajectory(i))
+            manifest.add_step("production_rep{0}".format(i), status=STATUS_COMPLETED)
+            manifest.add_output("trajectories", paths.repeat_trajectory(i))
+
+        # 4. frame extraction + combine
+        frame_pdbs = []
+        for i, traj in enumerate(trajectories, 1):
+            frame_pdbs += frames.extract_frames(
+                traj, paths.minimized_pdb,
+                os.path.join(paths.frames_dir, "rep{0}".format(i)), cfg.frame_stride)
+        combined = frames.combine_trajectories(
+            trajectories, paths.minimized_pdb, paths.combined_trajectory, cfg.frame_stride)
+        manifest.add_step("extract_frames", status=STATUS_COMPLETED)
+
+        # 5. SAXS analysis (FoXS per frame + MultiFoXS ensemble)
+        if cfg.uses_saxs:
+            records = foxs.run_foxs_fits(frame_pdbs, cfg.saxs, runner, cwd=paths.saxs_dir)
+            summary = foxs.summarize_fits(records)
+            for key in ("bestChi2", "bestFrame", "rgMean"):
+                if summary.get(key) is not None:
+                    manifest.set_metric(key, summary[key])
+            profiles = [r["fitFile"] for r in records if r.get("fitFile")]
+            if profiles:
+                ensemble = os.path.join(paths.ensemble_dir, "ensemble.dat")
+                foxs.run_multifoxs(profiles, cfg.saxs, runner, ensemble, cwd=paths.ensemble_dir)
+                manifest.add_output("saxsFits", ensemble)
+            manifest.add_step("foxs", status=STATUS_COMPLETED)
+            manifest.add_step("multifoxs", status=STATUS_COMPLETED)
+
+        # 6. structural clustering of the combined trajectory
+        cluster = structural.run_clustering(
+            combined, paths.minimized_pdb, paths.clustering_dir,
+            at_sel="name CA", pca=2)
+        manifest.add_step("cluster", status=STATUS_COMPLETED)
+        for f in cluster.get("outputFiles", []):
+            manifest.add_output("summaryTables", f)
+        manifest.set_parameter("nClusters", cluster.get("nClusters"))
+
+        manifest.set_status(STATUS_COMPLETED)
+        manifest.write(paths.manifest_path)
+        return {"status": "completed", "job_dir": paths.job_dir,
+                "manifest": paths.manifest_path}

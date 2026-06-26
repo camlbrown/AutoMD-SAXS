@@ -44,16 +44,13 @@ def test_new_manifest_pipeline_and_inputs():
     assert m["parameters"]["productionSteps"] == 20 * 500000
 
 
-def test_workflow_run_not_yet_implemented():
-    cfg = OpenMMConfig(pdb="m.pdb")
-    wf = workflow.Workflow(cfg, work_dir="/tmp/x")
-    try:
-        wf.run()
-    except (NotImplementedError, Exception) as exc:
-        # acceptable: either not-implemented, or (if openmm missing) a clear dep error
-        assert "OpenMM" in str(exc) or isinstance(exc, NotImplementedError)
-        return
-    raise AssertionError("expected run() to raise")
+def test_workflow_run_dry_run_returns_planned():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = OpenMMConfig(pdb="m.pdb", job_name="wfjob")
+        result = workflow.Workflow(cfg, tmp, dry_run=True).run()
+        assert result["status"] == "planned"
+        assert result["job_dir"].endswith("wfjob")
 
 
 def test_cli_plan_end_to_end():

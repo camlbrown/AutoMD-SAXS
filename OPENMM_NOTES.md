@@ -29,10 +29,20 @@ invocation, so eventual BilboMD integration is natural.
 | --- | --- | --- |
 | `schema.py` | Typed `OpenMMConfig` (JSON/YAML), enums, validation, derived steps | done + tested |
 | `foxs.py` | FoXS/MultiFoXS argv builders + `.fit` parser + chi^2/Rg summary | done + tested |
-| `workflow.py` | `plan_stages` (pure) + manifest shaping + `Workflow` orchestration | plan done + tested; run skeleton |
+| `workflow.py` | `plan_stages` (pure) + manifest + `Workflow.run` orchestration | done; dry-run tested, real unrun |
+| `paths.py` | OpenMM job directory layout (worker-friendly) | done + tested |
 | `prepare.py` | PDBFixer + addHydrogens + addSolvent (lazy OpenMM) | implemented, unrun |
 | `md.py` | minimise / equilibrate / production (lazy OpenMM) | implemented, unrun |
-| `cli.py` | `plan` / `validate` subcommands | done + tested |
+| `frames.py` | DCD frame extraction + combine (lazy mdtraj) | implemented, guard tested |
+| `cli.py` | `plan` / `run` / `validate` subcommands | done + tested |
+
+`Workflow.run` is the end-to-end orchestrator: create dirs + job.json + manifest,
+then prepare → solvate → minimize → equilibrate → production repeats → frame
+extraction → (FoXS per frame + MultiFoXS if SAXS) → clustering, folding outputs
+and chi^2/Rg metrics into the manifest. `--dry-run` records stages + the
+FoXS/MultiFoXS command plan without importing OpenMM; a real run executes the lazy
+OpenMM/mdtraj/FoXS stages and (here) fails cleanly with a `failed` manifest since
+those binaries live in the BilboMD image.
 
 ## Pipeline (dry-run `plan`)
 
@@ -45,22 +55,30 @@ validate_inputs → prepare_structure → solvate → minimize → equilibrate
 
 Pure-stdlib, no OpenMM/FoXS/numpy/pytest required. Heavy deps (`openmm`,
 `pdbfixer`, `foxs`/`multi_foxs`) are imported lazily and raise
-`MissingDependencyError` if invoked without them. Phase 2 adds 20 tests
-(schema 8, foxs 6, workflow/CLI 6); full repo suite is 132.
+`MissingDependencyError` if invoked without them. Phase 2 adds 32 tests
+(schema 8, foxs 6, workflow/CLI 6, run/paths/frames 6, plus updates); full repo
+suite is 138.
 
 ```bash
 python -m automd_saxs.openmm plan --config job.json   # dry-run plan
 for t in tests/test_openmm_*.py; do python "$t"; done
 ```
 
-## Pending (Phase 2)
+## Pending (Phase 2) — needs the BilboMD image / installed binaries to validate
 
-* End-to-end `Workflow.run` execution (wire prepare → md → frames → foxs →
-  multifoxs → cluster through a runner; needs OpenMM/FoXS to validate).
-* Per-frame FoXS orchestration + MultiFoXS ensemble collection into the manifest
-  (reuse `analysis.py`/`foxs.summarize_fits`).
-* Frame extraction from DCD (mdtraj) + combined-trajectory clustering reuse.
-* Protein-ligand parameterisation in OpenMM (start protein-only, mark
-  protein-ligand experimental until tested).
+* Real end-to-end execution of `Workflow.run` inside the BilboMD Podman image
+  (OpenMM + mdtraj + FoXS/MultiFoXS). Only dry-run plans + pure logic verified here.
+* FoXS fit-file naming: `run_foxs_fits` parses `<frame>*.fit`/`*.dat` defensively;
+  confirm the exact FoXS output name in the image and tighten parsing.
+* Protein-ligand parameterisation in OpenMM (protein-only is the robust path;
+  mark protein-ligand experimental until tested).
 * A short CPU smoke test once OpenMM is available.
-* Reproducible-seed plumbing is in the schema (`seed`) and integrators.
+* Reproducible-seed plumbing is in the schema (`seed`) and integrators; verify
+  determinism in the image.
+
+## Phase 3 (later)
+
+Integrate as a BilboMD worker job type. The flat OpenMM job layout
+(`paths.OpenMMPaths`), JSON config, manifest, and `python -m automd_saxs.openmm
+run` CLI are designed for worker execution. Read `/home/kri42825/bilbomd/CLAUDE.md`
+before any BilboMD changes.
