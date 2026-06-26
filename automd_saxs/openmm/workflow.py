@@ -78,10 +78,18 @@ def new_manifest(config: OpenMMConfig, status: str = STATUS_PLANNED) -> Manifest
 class Workflow:
     """Runs the OpenMM pipeline. MD layers are imported lazily on ``run``."""
 
-    def __init__(self, config: OpenMMConfig, work_dir: str, dry_run: bool = True):
+    def __init__(self, config: OpenMMConfig, work_dir=None, dry_run=True, out_dir=None):
         self.config = config
         self.work_dir = work_dir
+        self.out_dir = out_dir
         self.dry_run = dry_run
+
+    def _paths(self) -> OpenMMPaths:
+        """Resolve the job layout: ``out_dir`` (results land there directly) wins;
+        otherwise ``work_dir``/<job_name>."""
+        if self.out_dir:
+            return OpenMMPaths(job_dir=self.out_dir, n_repeats=self.config.n_repeats)
+        return OpenMMPaths(self.work_dir or ".", self.config.job_name, self.config.n_repeats)
 
     def plan(self) -> List[Stage]:
         return plan_stages(self.config)
@@ -97,7 +105,7 @@ class Workflow:
         Returns a result dict; on failure writes a ``failed`` manifest and raises.
         """
         cfg = self.config
-        paths = OpenMMPaths(self.work_dir, cfg.job_name, cfg.n_repeats)
+        paths = self._paths()
         paths.create()
         with open(paths.config_path, "w") as handle:
             handle.write(cfg.to_json())

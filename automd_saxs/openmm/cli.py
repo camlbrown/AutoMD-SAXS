@@ -40,8 +40,10 @@ def cmd_plan(args) -> int:
 
 def cmd_run(args) -> int:
     config = load_config(args.config)
-    work_dir = args.work_dir or "."
-    wf = workflow_mod.Workflow(config, work_dir, dry_run=args.dry_run)
+    # Worker contract: --out is the output directory (results + manifest land
+    # there directly). --work-dir is the alternative (results -> <work-dir>/<job_name>).
+    wf = workflow_mod.Workflow(
+        config, work_dir=args.work_dir, out_dir=args.out, dry_run=args.dry_run)
     try:
         result = wf.run()
     except MissingDependencyError as exc:
@@ -64,8 +66,8 @@ def cmd_validate(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="automd_saxs.openmm",
-        description="OpenMM/FoXS all-atom MD + SAXS refinement (Phase 2).")
+        prog="automd-saxs",
+        description="OpenMM/FoXS all-atom MD + SAXS refinement.")
     sub = parser.add_subparsers(dest="command")
 
     plan = sub.add_parser("plan", help="Validate config and print planned stages (no execution).")
@@ -75,7 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="Prepare and run (or --dry-run plan) the OpenMM pipeline.")
     run.add_argument("--config", required=True, help="job .json or .yaml")
-    run.add_argument("--work-dir", help="base directory for the job (default: cwd)")
+    run.add_argument("--out", help="output directory; results + manifest.json land here directly")
+    run.add_argument("--work-dir", help="alt to --out: results go to <work-dir>/<job_name>")
     run.add_argument("--dry-run", action="store_true", default=False,
                      help="record stages/commands without executing OpenMM/FoXS")
     run.set_defaults(func=cmd_run)

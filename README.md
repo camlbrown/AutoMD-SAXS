@@ -39,17 +39,36 @@ automd_saxs/
 tests/               # stdlib-only; no OpenMM/FoXS needed
 ```
 
-## Usage
+## Install
 
 ```bash
-# Validate and dry-run plan (no OpenMM/FoXS required)
-python -m automd_saxs.openmm plan --config job.json
-python -m automd_saxs.openmm validate --config job.json
-
-# Run (executes inside an environment providing OpenMM + FoXS, e.g. the BilboMD image)
-python -m automd_saxs.openmm run --config job.json --work-dir ./jobs
-# add --dry-run to record the planned stages/commands without executing
+# Local development (editable install from this checkout)
+pip install -e /home/kri42825/AutoMD-SAXS
+# Reproducible deployment: pin a tag/commit
+pip install "automd-saxs @ git+https://github.com/camlbrown/AutoMD-SAXS@v0.1.0"
 ```
+
+OpenMM/PDBFixer/mdtraj/FoXS/MultiFoXS are provided by the runtime environment
+(e.g. the BilboMD worker image); they are imported lazily.
+
+## Usage (stable CLI)
+
+Installing exposes the `automd-saxs` console command. This is the external
+contract the BilboMD worker depends on:
+
+```bash
+# Run: results + manifest.json land directly in OUTPUT_DIR
+automd-saxs run --config config.json --out output_dir
+
+# Validate / dry-run plan (no OpenMM/FoXS required)
+automd-saxs validate --config config.json
+automd-saxs plan --config config.json
+automd-saxs run --config config.json --out output_dir --dry-run
+```
+
+`output_dir/manifest.json` describes the run (`status`, `inputs`, `outputs`,
+`metrics`); the CLI exits non-zero on failure and logs to stdout/stderr. The same
+commands are also available as `python -m automd_saxs.openmm …`.
 
 Example `job.json`:
 

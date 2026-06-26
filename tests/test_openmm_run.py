@@ -38,6 +38,27 @@ def test_paths_layout_and_create():
             assert os.path.isdir(d)
 
 
+def test_paths_explicit_job_dir_no_nesting():
+    # The --out contract: results land directly in the given dir (no job_name subdir)
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "results")
+        p = OpenMMPaths(job_dir=out, n_repeats=1)
+        assert p.job_dir == os.path.abspath(out)
+        assert p.manifest_path == os.path.join(os.path.abspath(out), "manifest.json")
+
+
+def test_run_out_dir_writes_manifest_directly():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "jobout")
+        cfg = OpenMMConfig(pdb="m.pdb", job_name="ignored_for_out", n_repeats=1,
+                           simulation_time_ns=5)
+        result = workflow.Workflow(cfg, out_dir=out, dry_run=True).run()
+        assert result["status"] == "planned"
+        # manifest is directly in --out, not nested under job_name
+        assert os.path.isfile(os.path.join(out, "manifest.json"))
+        assert result["job_dir"] == os.path.abspath(out)
+
+
 # --- frames lazy guard ------------------------------------------------------
 
 def test_extract_frames_requires_mdtraj():

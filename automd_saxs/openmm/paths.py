@@ -11,13 +11,22 @@ from typing import List
 
 
 class OpenMMPaths:
-    def __init__(self, work_dir: str, job_name: str, n_repeats: int = 3):
+    def __init__(self, work_dir=None, job_name=None, n_repeats=3, job_dir=None):
         if n_repeats < 1:
             raise ValueError("n_repeats must be >= 1")
-        self.work_dir = os.path.abspath(work_dir)
-        self.job_name = job_name
         self.n_repeats = n_repeats
-        self.job_dir = os.path.join(self.work_dir, job_name)
+        if job_dir is not None:
+            # Explicit output directory (the worker contract: --out OUTPUT_DIR).
+            # Results + manifest land directly here, with no job_name nesting.
+            self.job_dir = os.path.abspath(job_dir)
+            self.work_dir = os.path.dirname(self.job_dir)
+            self.job_name = os.path.basename(self.job_dir)
+        else:
+            if work_dir is None or job_name is None:
+                raise ValueError("provide either job_dir, or both work_dir and job_name")
+            self.work_dir = os.path.abspath(work_dir)
+            self.job_name = job_name
+            self.job_dir = os.path.join(self.work_dir, job_name)
 
     # structures
     @property

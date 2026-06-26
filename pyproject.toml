@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "automd_saxs"
-version = "0.0.1"
+version = "0.1.0"
 description = "All-atom OpenMM MD + FoXS SAXS refinement workflow (AutoMD-SAXS OpenMM branch)."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,6 +15,11 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+
+# Stable external CLI contract consumed by the BilboMD worker:
+#   automd-saxs run --config config.json --out output_dir
+[project.scripts]
+automd-saxs = "automd_saxs.openmm.cli:main"
 
 [tool.setuptools]
 packages = ["automd_saxs", "automd_saxs.openmm"]
