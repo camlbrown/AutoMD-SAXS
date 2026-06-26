@@ -27,6 +27,19 @@ binaries are treated as unavailable by default.
 | `automd_saxs/command_runner.py` | Subprocess wrapper + dry-run + missing-binary handling |
 | `automd_saxs/cli.py` | `plan`, `run`, `postprocess`, `analyze`, `cluster`, `dmax`, `render-mdp` subcommands |
 
+## Removed dead legacy (cleanup)
+
+Unreferenced demo/broken/superseded scripts removed from
+`slurms/post_processing/python_scripts/` (none were invoked by the shell
+pipeline or imported by other scripts; the clustering/PCA logic they overlapped
+with now lives, tested, in `automd_saxs/clone.py` + `structural.py`):
+`run_data.py`, `run_CLoNe.sh`, `test_structural.py` (broken dev stub),
+`PCA_SAXS_DENSITY.py` (unused PCA variant; `PCA_viridis.py` is the one the
+pipeline uses), `skip_frames.py` (pipeline uses `gmx trjconv -skip`), `align.py`
+(unused). The load-bearing legacy (force fields, mdp templates, slurm scripts,
+ff_convert, and the post-processing scripts the shell still calls) is retained —
+it is the actual GROMACS execution layer the package plans/wraps.
+
 ## Legacy → new mapping
 
 | Legacy behaviour | Replacement |
