@@ -1,0 +1,5 @@
+# FoXS fit of model to experimental data  Chi^2 = 1.23  c1 = 1.01  c2 = 2.50
+#    q          I_exp        error        I_model
+0.0000     1000.00       10.00      1010.00
+0.0100      800.00        8.00       790.00
+0.0200      600.00        6.00       605.00
