@@ -1,97 +1,86 @@
-# AutoMD-SAXS
+# AutoMD-SAXS (OpenMM branch)
 
-<p align="center">
-  <img src="workflow.svg" alt="Workflow" width="600"/>
-</p>
+AutoMD-SAXS is an automated, all-atom molecular dynamics + SAXS refinement
+workflow for protein (and, later, protein–ligand) systems.
 
-AutoMD-SAXS is an automated workflow for the setup, simulation and SAXS-based analysis of protein and protein-ligand systems. Built for use on HPC using the Slurm job scheduler.
+This is the **OpenMM branch**: the higher-accuracy, explicit-solvent refinement
+path, ported away from the original GROMACS/Slurm/ATSAS pipeline onto **OpenMM**
+for MD and **FoXS/MultiFoXS** for SAXS fitting. It is designed for clean,
+worker-style execution (JSON/YAML config + a machine-readable manifest) so it can
+run as a BilboMD worker job.
 
-## Installation
-### Software requirements:
-  - GROMACS (local install or module loaded)
-  - Slurm job scheduler
-  - Conda 
-  - ATSAS 
-      - Download only required for SAXS-based analysis 
-      - Current analysis is optimised for ATSAS 3.0.4 (recommended)
-   
-### Setting up the Python environment
+> The original GROMACS/Slurm/ATSAS workflow is preserved on the
+> [`AutoMD-SAXs-GROMACS`](https://github.com/camlbrown/AutoMD-SAXS/tree/AutoMD-SAXs-GROMACS)
+> branch.
 
-```bash
-# Create a new conda environment
-conda env create -f automdsaxs.yml
-# Activate environment
-conda activate automdsaxs
+## Pipeline
+
+```
+validate → prepare (PDBFixer + addHydrogens@pH) → solvate (explicit water + ions)
+  → minimize → equilibrate (NVT/NPT) → production repeats → frame extraction
+  → FoXS (per-frame χ²) → MultiFoXS (ensemble) → CLoNe/PCA clustering → manifest
+```
+
+## Layout
+
+```text
+automd_saxs/
+  config.py, manifest.py, command_runner.py, dmax.py,   # shared foundation
+  clone.py, structural.py                               # CLoNe/PCA clustering
+  openmm/
+    schema.py        # typed OpenMMConfig (JSON/YAML)
+    workflow.py      # plan_stages + Workflow.run orchestration
+    paths.py         # job directory layout
+    prepare.py       # PDBFixer / addHydrogens / addSolvent
+    md.py            # minimise / equilibrate / production
+    frames.py        # DCD frame extraction + combine
+    foxs.py          # FoXS / MultiFoXS command builders + parsers
+    cli.py           # `plan` / `run` / `validate`
+tests/               # stdlib-only; no OpenMM/FoXS needed
 ```
 
 ## Usage
 
-For full documentation please read AutoMD_SAXS_Manual.pdf
-
-### File requirements
-- ```*Protein*.pdb```
-- ```*SAXS*.dat``` (optional)
-
-Note: Both files must be present within the AutoMD-SAXS directory
-
-### Simulation setup
 ```bash
-cd /path/to/AutoMD-SAXS 
+# Validate and dry-run plan (no OpenMM/FoXS required)
+python -m automd_saxs.openmm plan --config job.json
+python -m automd_saxs.openmm validate --config job.json
+
+# Run (executes inside an environment providing OpenMM + FoXS, e.g. the BilboMD image)
+python -m automd_saxs.openmm run --config job.json --work-dir ./jobs
+# add --dry-run to record the planned stages/commands without executing
 ```
 
-```bash
-sh simulation_setup.sh -p *Protein*.pdb -s *SAXS*.dat 
-```
-- -s flag is optional. Running without -s will not invoke SAXS-based trajectory analysis
-- Outputs the directory ```*Protein*_simulation/ ```
-- User will be prompted to answer questions related to their system. Answers outputted as variables to ```/AutoMD-SAXS/*Protein*_simulation/configurations.txt ```
+Example `job.json`:
 
-### Run the simulation
-
-```bash
-sh run_MD.sh *Protein*_simulation/ 
-```
-
-## Directory layout
-
-```bash
-ff_convert/
-```
-Contains scripts that recast the input PDB’s atom names and residue labels into the conventions required by the AMBER and CHARMM force fields. 
-
-```bash
-slurms/ 
-```
-Holds all of the Slurm submission scripts that drive the pipeline. Users can modify the #SBATCH lines of these scripts to fit their own cluster’s scheduler settings or resource requirements.
-
-```bash
-mdp_files/
-```
-GROMACS .mdp parameter files for each simulation stage. These templates work “out of the box,” but more experienced MD users may wish to tailor these parameters to their specific system or research needs.
-
-```bash
-examples/
-```
-Contains end-to-end demonstrations of every major workflow variant supported:
-- System types: protein or protein–ligand complexes
-- Preparation methods: Protein Preparation Wizard, H++ protonation, or CHARMM-GUI
-- Force fields: CHARMM36M or AMBER14SB
-- SAXS: with and without experimental SAXS data integration
-
-## Citation - pending 
-
-If you use AutoMD-SAXS in your research...
-
-```bibtex
-@article{,
-  title={},
-  author={},
-  journal={},
-  year={},
-  doi={},
-  url={}
+```json
+{
+  "job_name": "lyz_refine",
+  "pdb": "lysozyme.pdb",
+  "saxs": "lysozyme.dat",
+  "system": "Protein",
+  "force_field": "amber14",
+  "water_model": "tip3p",
+  "simulation_time_ns": 50,
+  "n_repeats": 3,
+  "ionic_concentration_M": 0.15,
+  "ph": 7.0,
+  "temperature_K": 300
 }
-
 ```
-Shield:
-This work is licensed under...
+
+## Dependencies
+
+The MD/SAXS binaries (OpenMM, PDBFixer, mdtraj, FoXS/MultiFoXS) are provided by
+the BilboMD Podman image and are imported lazily — the package imports and its
+pure logic (config, planning, parsers, summaries) is testable without them.
+
+```bash
+pytest          # or: for t in tests/test_*.py; do python "$t"; done
+```
+
+## Status
+
+Phase 2 of the project (see `OPENMM_NOTES.md`). Planning and orchestration are
+implemented and unit-tested; real end-to-end execution and final validation are
+performed in the BilboMD image during worker integration (Phase 3).

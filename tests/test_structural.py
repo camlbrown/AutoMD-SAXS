@@ -14,7 +14,7 @@ from contextlib import redirect_stderr
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from automd_saxs import structural, cli  # noqa: E402
+from automd_saxs import structural  # noqa: E402
 from automd_saxs.clone import CLoNe  # noqa: E402
 from automd_saxs.command_runner import MissingDependencyError  # noqa: E402
 
@@ -108,22 +108,6 @@ def test_clone_fit_requires_numerics_or_clusters():
     clone = CLoNe(pdc=4, n_resize=1, filt=0)
     clone.fit(np.array(rng))
     assert hasattr(clone, "labels_") and len(clone.labels_) == len(rng)
-
-
-def test_cluster_cli_errors_cleanly_without_mdtraj():
-    try:
-        import mdtraj  # noqa: F401
-        import sklearn  # noqa: F401
-        return  # deps present: skip the failure-path assertion
-    except ImportError:
-        pass
-    with tempfile.TemporaryDirectory() as tmp:
-        err = io.StringIO()
-        with redirect_stderr(err):
-            code = cli.main(["cluster", "--traj", "x.xtc", "--topo", "x.pdb",
-                             "--out-dir", tmp])
-        assert code == 1
-        assert "requires mdtraj" in err.getvalue()
 
 
 def _run_standalone():

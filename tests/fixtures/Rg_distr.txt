@@ -1,8 +1,0 @@
-# header line 1
-# header line 2
-# header line 3
-# header line 4
-# header line 5
-22.0 0.10 0.05
-24.0 0.40 0.55
-26.0 0.50 0.40

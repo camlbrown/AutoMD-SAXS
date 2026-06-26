@@ -1,13 +1,18 @@
-"""AutoMD-SAXS workflow package (Phase 1 refactor).
+"""AutoMD-SAXS workflow package (OpenMM branch).
 
-This package is being grown incrementally out of the legacy GROMACS/ATSAS/Slurm
-shell pipeline (``simulation_setup.sh`` + ``run_MD.sh`` + ``slurms/``). The goal
-of Phase 1 is to lift the *scientific logic* out of bash heredocs and ad-hoc
-shell into typed, unit-testable Python while preserving behaviour.
+The higher-accuracy, explicit-solvent all-atom MD + SAXS refinement pipeline,
+built on OpenMM and FoXS/MultiFoXS. The OpenMM workflow lives in
+:mod:`automd_saxs.openmm`; the top-level modules here are the shared, tested
+foundation it reuses (``config``, ``manifest``, ``command_runner``, ``dmax``,
+``clone``, ``structural``).
 
-Nothing in this package runs GROMACS, ATSAS, or Slurm. External scientific
-binaries are treated as unavailable by default; modules here only *plan* and
-*compute*.
+The GROMACS/ATSAS/Slurm origin of this project is preserved on the
+``AutoMD-SAXs-GROMACS`` branch. This branch ports the workflow away from those
+tools. Heavy scientific dependencies (openmm, pdbfixer, mdtraj, FoXS) are
+imported lazily and run inside the BilboMD image; the pure logic here is testable
+without them.
+
+Entry point: ``python -m automd_saxs.openmm`` (``plan`` / ``run`` / ``validate``).
 """
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"

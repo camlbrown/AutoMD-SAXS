@@ -5,19 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "automd_saxs"
 version = "0.0.1"
-description = "All-atom MD + SAXS refinement workflow (Phase 1 refactor of the legacy GROMACS/ATSAS/Slurm pipeline)."
+description = "All-atom OpenMM MD + FoXS SAXS refinement workflow (AutoMD-SAXS OpenMM branch)."
 readme = "README.md"
 requires-python = ">=3.8"
-# Runtime science deps (numpy, scipy, mdanalysis, ...) are pinned in
-# automdsaxs.yml. dmax.py works with or without numpy so the core logic is
-# testable in a bare interpreter; heavier modules added later may require them.
+# Runtime science deps (openmm, pdbfixer, mdtraj, numpy/scipy/scikit-learn, and
+# foxs/multi_foxs) are provided by the BilboMD Podman image; they are imported
+# lazily so the package imports and its pure logic stays testable without them.
 dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools]
-packages = ["automd_saxs"]
+packages = ["automd_saxs", "automd_saxs.openmm"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
