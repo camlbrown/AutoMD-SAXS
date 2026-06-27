@@ -191,14 +191,23 @@ class Workflow:
             manifest.add_step("foxs", status=STATUS_COMPLETED)
             manifest.add_step("multifoxs", status=STATUS_COMPLETED)
 
-        # 6. structural clustering of the combined trajectory
-        cluster = structural.run_clustering(
-            combined, paths.minimized_pdb, paths.clustering_dir,
-            at_sel="name CA", pca=2)
-        manifest.add_step("cluster", status=STATUS_COMPLETED)
-        for f in cluster.get("outputFiles", []):
-            manifest.add_output("summaryTables", f)
-        manifest.set_parameter("nClusters", cluster.get("nClusters"))
+        # 6. structural clustering of the combined trajectory. Lenient: clustering
+        # is a secondary analysis (needs scikit-learn), so a failure here records
+        # a note and is skipped rather than failing an otherwise-successful job.
+        try:
+            cluster = structural.run_clustering(
+                combined, paths.minimized_pdb, paths.clustering_dir,
+                at_sel="name CA", pca=2)
+            manifest.add_step("cluster", status=STATUS_COMPLETED)
+            for f in cluster.get("outputFiles", []):
+                manifest.add_output("summaryTables", f)
+            manifest.set_parameter("nClusters", cluster.get("nClusters"))
+        except MissingDependencyError as exc:
+            manifest.add_step("cluster", status=STATUS_FAILED)
+            manifest.add_note("clustering skipped: {0}".format(exc))
+        except Exception as exc:  # noqa: BLE001 - clustering must not fail the job
+            manifest.add_step("cluster", status=STATUS_FAILED)
+            manifest.add_note("clustering failed (non-fatal): {0}".format(exc))
 
         manifest.set_status(STATUS_COMPLETED)
         manifest.write(paths.manifest_path)
