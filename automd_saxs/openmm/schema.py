@@ -76,7 +76,22 @@ _FIELDS = (
 
 
 class OpenMMConfig:
-    """Validated OpenMM job description (validates on construction)."""
+    """Validated OpenMM job description (validates on construction).
+
+    Relationship to BilboMD's OpenMM pipeline (auto/pdb/crd): that pipeline does
+    *implicit-solvent, Rg-restrained conformational sampling* (heat to ~600 K, NVE
+    Verlet, RadiusOfGyration restraint) to generate an ensemble. AutoMD-SAXS is
+    the distinct *higher-accuracy, explicit-solvent, unbiased equilibrium*
+    refinement path, so several settings intentionally differ:
+
+    * explicit solvent (PME + water box + ions) and NPT, vs implicit/NVE;
+    * temperature 300 K (physiological equilibrium) vs BilboMD's 600 K sampling;
+    * friction 1 ps^-1 (standard equilibrium Langevin) vs BilboMD's 0.1 ps^-1;
+    * no Rg restraint (unbiased).
+
+    Peripheral engine conventions are kept consistent with BilboMD where it does
+    not affect the science: HBonds constraints, and a 1.2 nm nonbonded cutoff.
+    """
 
     def __init__(
         self,
@@ -96,7 +111,8 @@ class OpenMMConfig:
         box_padding_nm=None,         # None -> derive from model Dmax at runtime
         equilibration_ns=0.2,
         minimize_max_iterations=0,   # 0 -> OpenMM runs until converged
-        nonbonded_cutoff_nm=1.0,
+        # 1.2 nm matches the BilboMD OpenMM nonbonded cutoff convention.
+        nonbonded_cutoff_nm=1.2,
         friction_per_ps=1.0,
         report_interval_steps=5000,
         frame_stride=2,
