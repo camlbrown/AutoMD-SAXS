@@ -164,8 +164,11 @@ class OpenMMConfig:
         if (self.force_field, self.water_model) not in _FF_WATER_XML:
             raise ValueError("unsupported force-field/water combination: {0}/{1}".format(
                 self.force_field.value, self.water_model.value))
-        if not self.simulation_time_ns > 0 or int(self.simulation_time_ns) != self.simulation_time_ns:
-            raise ValueError("simulation_time_ns must be a positive integer")
+        # Positive number of ns. Fractional values are allowed (e.g. 0.5 ns
+        # refinements, sub-ns smoke tests); production_steps() enforces that the
+        # value yields a whole number of integration steps for the timestep.
+        if not self.simulation_time_ns > 0:
+            raise ValueError("simulation_time_ns must be > 0")
         if not self.timestep_fs > 0:
             raise ValueError("timestep_fs must be > 0")
         if int(self.n_repeats) != self.n_repeats or self.n_repeats < 1:

@@ -44,6 +44,13 @@ def test_production_and_equilibration_steps():
     assert c.equilibration_steps() == 100000
 
 
+def test_fractional_ns_allowed():
+    # sub-ns / fractional ns is valid as long as it yields whole steps
+    c = OpenMMConfig(pdb="m.pdb", simulation_time_ns=0.02, timestep_fs=2.0)
+    assert c.production_steps() == 10000
+    _expect_error(OpenMMConfig, pdb="m.pdb", simulation_time_ns=0)
+
+
 def test_rejects_bad_inputs():
     _expect_error(OpenMMConfig, pdb="m.gro")
     _expect_error(OpenMMConfig, pdb="m.pdb", saxs="d.txt")

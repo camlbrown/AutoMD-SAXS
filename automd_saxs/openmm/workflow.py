@@ -198,10 +198,14 @@ class Workflow:
             cluster = structural.run_clustering(
                 combined, paths.minimized_pdb, paths.clustering_dir,
                 at_sel="name CA", pca=2)
-            manifest.add_step("cluster", status=STATUS_COMPLETED)
-            for f in cluster.get("outputFiles", []):
-                manifest.add_output("summaryTables", f)
-            manifest.set_parameter("nClusters", cluster.get("nClusters"))
+            if cluster.get("skipped"):
+                manifest.add_step("cluster", status=STATUS_COMPLETED)
+                manifest.add_note("clustering skipped: {0}".format(cluster["skipped"]))
+            else:
+                manifest.add_step("cluster", status=STATUS_COMPLETED)
+                for f in cluster.get("outputFiles", []):
+                    manifest.add_output("summaryTables", f)
+                manifest.set_parameter("nClusters", cluster.get("nClusters"))
         except MissingDependencyError as exc:
             manifest.add_step("cluster", status=STATUS_FAILED)
             manifest.add_note("clustering skipped: {0}".format(exc))

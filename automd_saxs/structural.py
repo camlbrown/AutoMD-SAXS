@@ -175,6 +175,22 @@ def run_clustering(
         os.makedirs(out_dir)
 
     struct_ens = mdtraj.load(traj, top=topo)
+
+    # Clustering needs enough frames to be meaningful (and PCA needs at least
+    # `pca`+1 samples). Skip cleanly with a clear reason for very short runs
+    # rather than letting sklearn raise a cryptic error.
+    min_frames = max(3, (pca + 1) if pca else 3)
+    if struct_ens.n_frames < min_frames:
+        return {
+            "summary": [],
+            "labels": [],
+            "centers": [],
+            "nClusters": 0,
+            "outputFiles": [],
+            "skipped": "too few frames for clustering ({0} < {1})".format(
+                struct_ens.n_frames, min_frames),
+        }
+
     selection = struct_ens.topology.select(at_sel)
     coords = struct_ens.xyz[:, selection]
     coords = coords.reshape(coords.shape[0], coords.shape[1] * coords.shape[2])
