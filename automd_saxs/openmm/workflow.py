@@ -229,8 +229,10 @@ class Workflow:
         # a note and is skipped rather than failing an otherwise-successful job.
         self._write_progress(paths, cfg, "cluster", current_repeat=cfg.n_repeats)
         try:
+            # The combined trajectory is solute-only, so cluster against the
+            # solute-only topology written beside it (not the solvated structure).
             cluster = structural.run_clustering(
-                combined, paths.minimized_pdb, paths.clustering_dir,
+                combined, paths.combined_topology, paths.clustering_dir,
                 at_sel="name CA", pca=2)
             if cluster.get("skipped"):
                 manifest.add_step("cluster", status=STATUS_COMPLETED)

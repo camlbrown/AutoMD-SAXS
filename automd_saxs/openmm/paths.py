@@ -79,6 +79,11 @@ class OpenMMPaths:
         return os.path.join(self.job_dir, "production", "combined.dcd")
 
     @property
+    def combined_topology(self):
+        # Solute-only reference written next to combined.dcd by combine_trajectories.
+        return os.path.join(self.job_dir, "production", "combined.pdb")
+
+    @property
     def config_path(self):
         return os.path.join(self.job_dir, "job.json")
 
