@@ -113,6 +113,10 @@ def production(config: OpenMMConfig, equilibrated_state: str, minimized_pdb: str
     simulation = app.Simulation(pdb.topology, system, _integrator(openmm, unit, config),
                                 _select_platform(openmm, config.platform))
     simulation.loadState(equilibrated_state)
+    # loadState carries over the equilibration step counter; reset it so each
+    # repeat's StateDataReporter (and the live per-repeat ns counter derived from
+    # it) starts at step 0 / 0 ns.
+    simulation.currentStep = 0
     simulation.reporters.append(app.DCDReporter(out_dcd, config.report_interval_steps))
     simulation.reporters.append(app.StateDataReporter(
         log_path, config.report_interval_steps, step=True, temperature=True,
