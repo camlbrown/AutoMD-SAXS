@@ -137,29 +137,60 @@ class Workflow:
             manifest.write(paths.manifest_path)
             raise
 
+    def _write_progress(self, paths, cfg, stage, current_repeat=0):
+        """Write a small live-progress file the BilboMD backend polls while running.
+
+        Stage-level signal; the per-repeat ns counter is derived by the backend
+        from the StateDataReporter step column in each production log.
+        """
+        import json
+        import time
+
+        try:
+            data = {
+                "stage": stage,
+                "nRepeats": cfg.n_repeats,
+                "currentRepeat": current_repeat,
+                "productionSteps": cfg.production_steps(),
+                "equilibrationSteps": cfg.equilibration_steps(),
+                "timestepFs": cfg.timestep_fs,
+                "simulationTimeNs": cfg.simulation_time_ns,
+                "reportIntervalSteps": cfg.report_interval_steps,
+                "updatedAt": time.time(),
+            }
+            with open(paths.progress_path, "w") as handle:
+                json.dump(data, handle)
+        except Exception:  # noqa: BLE001 - progress reporting must never fail a run
+            pass
+
     def _execute(self, cfg, paths, manifest, runner):
         from . import prepare, md, frames, foxs
         from .. import structural
 
         # 1. structure preparation + solvation
+        self._write_progress(paths, cfg, "prepare_structure")
         audit = prepare.prepare_structure(cfg, cfg.pdb, paths.prepared_pdb)
         manifest.add_step("prepare_structure", status=STATUS_COMPLETED)
         manifest.set_parameter("prepAudit", audit)
         padding = prepare.resolve_box_padding(cfg, cfg.pdb)
         manifest.set_parameter("boxPaddingNm", padding)
+        self._write_progress(paths, cfg, "solvate")
         prepare.solvate(cfg, paths.prepared_pdb, paths.solvated_pdb, padding)
         manifest.add_step("solvate", status=STATUS_COMPLETED)
 
         # 2. minimise + equilibrate
+        self._write_progress(paths, cfg, "minimize")
         min_result = md.minimize(cfg, paths.solvated_pdb, paths.minimized_pdb)
         manifest.add_step("minimize", status=STATUS_COMPLETED)
         manifest.set_parameter("minimizedEnergyKJ", min_result["potentialEnergyKJ"])
+        self._write_progress(paths, cfg, "equilibrate")
         md.equilibrate(cfg, paths.minimized_pdb, paths.equilibrated_state)
         manifest.add_step("equilibrate", status=STATUS_COMPLETED)
 
         # 3. production repeats
         trajectories = []
         for i in range(1, cfg.n_repeats + 1):
+            self._write_progress(paths, cfg, "production_rep{0}".format(i), current_repeat=i)
             md.production(cfg, paths.equilibrated_state, paths.minimized_pdb,
                           paths.repeat_trajectory(i), paths.repeat_log(i))
             trajectories.append(paths.repeat_trajectory(i))
@@ -167,6 +198,7 @@ class Workflow:
             manifest.add_output("trajectories", paths.repeat_trajectory(i))
 
         # 4. frame extraction + combine
+        self._write_progress(paths, cfg, "extract_frames", current_repeat=cfg.n_repeats)
         frame_pdbs = []
         for i, traj in enumerate(trajectories, 1):
             frame_pdbs += frames.extract_frames(
@@ -178,6 +210,7 @@ class Workflow:
 
         # 5. SAXS analysis (FoXS per frame + MultiFoXS ensemble)
         if cfg.uses_saxs:
+            self._write_progress(paths, cfg, "foxs", current_repeat=cfg.n_repeats)
             records = foxs.run_foxs_fits(frame_pdbs, cfg.saxs, runner, cwd=paths.saxs_dir)
             summary = foxs.summarize_fits(records)
             for key in ("bestChi2", "bestFrame", "rgMean"):
@@ -194,6 +227,7 @@ class Workflow:
         # 6. structural clustering of the combined trajectory. Lenient: clustering
         # is a secondary analysis (needs scikit-learn), so a failure here records
         # a note and is skipped rather than failing an otherwise-successful job.
+        self._write_progress(paths, cfg, "cluster", current_repeat=cfg.n_repeats)
         try:
             cluster = structural.run_clustering(
                 combined, paths.minimized_pdb, paths.clustering_dir,

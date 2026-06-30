@@ -86,6 +86,11 @@ class OpenMMPaths:
     def manifest_path(self):
         return os.path.join(self.job_dir, "manifest.json")
 
+    @property
+    def progress_path(self):
+        # Live stage/progress file polled by the BilboMD backend while running.
+        return os.path.join(self.job_dir, "progress.json")
+
     def all_dirs(self) -> List[str]:
         dirs = [self.job_dir, os.path.join(self.job_dir, "production"),
                 self.frames_dir, self.saxs_dir, self.ensemble_dir, self.clustering_dir]
