@@ -264,12 +264,12 @@ class CLoNe(object):
                     d_noise = kde_noise.evaluate(rho_core)
 
                     if len(d_noise[d_noise > 1e-16]) < core_size:
-                        log_pN_pNX = np.NINF
+                        log_pN_pNX = -np.inf
                     else:
                         log_pN_pNX = np.sum(np.log(d_noise[d_noise > 1e-16])) + log_pN
 
                     if not len(d_core[d_core > 1e-16]):
-                        log_pC_pCX = np.NINF
+                        log_pC_pCX = -np.inf
                     else:
                         log_pC_pCX = np.sum(np.log(d_core[d_core > 1e-16])) + log_pC
 

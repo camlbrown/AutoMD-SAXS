@@ -128,11 +128,15 @@ def run_foxs_fits(frame_pdbs, experimental_dat, runner, cwd=None):
         if runner.dry_run:
             continue
         base = os.path.basename(pdb)
-        search_dir = cwd or os.path.dirname(pdb) or "."
-        candidates = (glob.glob(os.path.join(search_dir, base + "*.fit"))
-                      + glob.glob(os.path.join(search_dir, base + "*.dat")))
+        # FoXS writes its outputs next to the input PDB regardless of cwd, naming
+        # the experimental fit "<frame_stem>_<exp_stem>.fit" whose header carries
+        # Chi^2. The "<base>.pdb.dat" is only the theoretical profile (no chi^2),
+        # so match the .fit, not the .dat.
+        out_dir = os.path.dirname(pdb) or "."
+        stem = os.path.splitext(base)[0]  # e.g. structure_0
+        fits = sorted(glob.glob(os.path.join(out_dir, stem + "*.fit")))
         chi2 = None
-        fit_file = candidates[0] if candidates else None
+        fit_file = fits[0] if fits else None
         if fit_file:
             with open(fit_file) as fh:
                 chi2 = parse_foxs_fit(fh.read()).get("chi2")
