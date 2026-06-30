@@ -9,11 +9,18 @@ Each stage is independently callable so the orchestration level stays testable
 even though the numerical run needs OpenMM + (ideally) a GPU.
 """
 
+import math
+
 from ..command_runner import MissingDependencyError
 from .schema import OpenMMConfig
 
-# Fail-fast threshold matching the BilboMD minimisation energy gate.
-MAX_REASONABLE_ENERGY_KJ = 1.0e6
+# Fail-fast gate for a failed minimisation. For an EXPLICIT-solvent system the
+# minimised potential energy is large and NEGATIVE (the water box dominates;
+# values of -1e6..-1e7 kJ/mol are normal and healthy), so we must not reject on
+# magnitude. A failed minimisation instead shows up as NaN/inf or a large
+# POSITIVE energy (unrelieved steric clashes). This threshold is that positive
+# clash ceiling, not an absolute-value bound.
+MAX_POSITIVE_ENERGY_KJ = 1.0e7
 
 
 def _require_openmm():
@@ -72,7 +79,9 @@ def minimize(config: OpenMMConfig, solvated_pdb: str, out_pdb: str):
     simulation.minimizeEnergy(maxIterations=config.minimize_max_iterations)
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy = state.getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
-    if energy != energy or abs(energy) > MAX_REASONABLE_ENERGY_KJ:  # NaN or huge
+    # Healthy explicit-solvent minimisation yields a large NEGATIVE energy; only
+    # NaN/inf or a large POSITIVE energy (unrelieved clashes) indicates failure.
+    if math.isnan(energy) or math.isinf(energy) or energy > MAX_POSITIVE_ENERGY_KJ:
         raise RuntimeError("minimisation produced unphysical energy: {0} kJ/mol".format(energy))
     with open(out_pdb, "w") as handle:
         app.PDBFile.writeFile(pdb.topology, state.getPositions(), handle)
