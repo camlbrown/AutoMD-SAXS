@@ -212,6 +212,16 @@ class Workflow:
         if cfg.uses_saxs:
             self._write_progress(paths, cfg, "foxs", current_repeat=cfg.n_repeats)
             records = foxs.run_foxs_fits(frame_pdbs, cfg.saxs, runner, cwd=paths.saxs_dir)
+            # Attach a per-frame Rg (computed from the protein frame) so the
+            # dashboard can chart chi^2 and Rg, and rgMean is populated. Records
+            # are aligned with frame_pdbs order; use a global frame index so
+            # frames from different repeats don't collide.
+            per_frame = []
+            for gi, (pdb, rec) in enumerate(zip(frame_pdbs, records)):
+                rec["frame"] = gi
+                rec["rg"] = frames.rg_of_pdb(pdb)
+                per_frame.append({"frame": gi, "chi2": rec.get("chi2"), "rg": rec["rg"]})
+            manifest.set_parameter("perFrame", per_frame)
             summary = foxs.summarize_fits(records)
             for key in ("bestChi2", "bestFrame", "rgMean"):
                 if summary.get(key) is not None:

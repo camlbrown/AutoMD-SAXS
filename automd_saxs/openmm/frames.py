@@ -57,6 +57,17 @@ def extract_frames(trajectory, topology, out_dir, stride=2, selection=DEFAULT_SE
     return written
 
 
+def rg_of_pdb(pdb_path):
+    """Radius of gyration (Angstrom) of a single-structure PDB, or None on error."""
+    mdtraj = _require_mdtraj()
+    try:
+        t = mdtraj.load(pdb_path)
+        # mdtraj returns Rg in nm; report Angstrom to match FoXS/SAXS conventions.
+        return float(mdtraj.compute_rg(t)[0] * 10.0)
+    except Exception:  # noqa: BLE001 - Rg is advisory; never fail the run
+        return None
+
+
 def combine_trajectories(trajectories, topology, out_path, stride=1,
                          selection=DEFAULT_SELECTION):
     """Concatenate per-repeat trajectories into one solute-only DCD. Returns out_path.
