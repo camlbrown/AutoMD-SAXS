@@ -57,6 +57,60 @@ def extract_frames(trajectory, topology, out_dir, stride=2, selection=DEFAULT_SE
     return written
 
 
+def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELECTION):
+    """Per-frame structural metrics for one repeat's trajectory.
+
+    Returns a list of ``{frame, rg, rmsd, sasa}`` (Rg and Cα-RMSD-to-first-frame in
+    Angstrom; total SASA in nm^2) computed on the solute. Mirrors the GROMACS
+    branch's gyrate/rms/sasa analysis but via mdtraj so it runs in the OpenMM
+    pipeline. Best-effort: returns [] if it cannot be computed.
+    """
+    mdtraj = _require_mdtraj()
+    try:
+        traj = _solute(mdtraj.load(trajectory, top=topology, stride=stride), selection)
+        rg = mdtraj.compute_rg(traj) * 10.0  # nm -> Angstrom
+        ca = traj.topology.select("name CA")
+        rmsd = (mdtraj.rmsd(traj, traj, 0, atom_indices=ca) * 10.0
+                if len(ca) else [0.0] * traj.n_frames)
+        try:
+            sasa = mdtraj.shrake_rupley(traj, mode="atom").sum(axis=1)
+        except Exception:  # noqa: BLE001 - SASA is advisory
+            sasa = [None] * traj.n_frames
+        out = []
+        for i in range(traj.n_frames):
+            out.append({
+                "frame": i,
+                "rg": float(rg[i]),
+                "rmsd": float(rmsd[i]),
+                "sasa": (float(sasa[i]) if sasa[i] is not None else None),
+            })
+        return out
+    except Exception:  # noqa: BLE001 - time-series is advisory; never fail the run
+        return []
+
+
+def read_pca_coords(path):
+    """Read a clustering PCA_coords.txt into a list of [pc1, pc2, ...] float rows.
+
+    Header line (``PC1(0.43) PC2(0.21)``) is skipped. Returns [] on any error.
+    """
+    try:
+        rows = []
+        with open(path) as fh:
+            lines = fh.read().splitlines()
+        for line in lines[1:]:
+            parts = line.split()
+            if not parts:
+                continue
+            try:
+                rows.append([float(p) for p in parts])
+            except ValueError:
+                continue
+        return rows
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def rg_of_pdb(pdb_path):
     """Radius of gyration (Angstrom) of a single-structure PDB, or None on error."""
     mdtraj = _require_mdtraj()

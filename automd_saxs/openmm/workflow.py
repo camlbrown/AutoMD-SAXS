@@ -197,16 +197,40 @@ class Workflow:
             manifest.add_step("production_rep{0}".format(i), status=STATUS_COMPLETED)
             manifest.add_output("trajectories", paths.repeat_trajectory(i))
 
-        # 4. frame extraction + combine
+        # 4. frame extraction + combine. Track which repeat each frame came from
+        # and its simulation time (ns) so the dashboard can toggle x-axis
+        # (frame/ns) and per-repeat series.
         self._write_progress(paths, cfg, "extract_frames", current_repeat=cfg.n_repeats)
+        # ns per extracted frame: DCD saves every report_interval_steps, then we
+        # sub-sample by frame_stride.
+        ns_per_frame = (cfg.frame_stride * cfg.report_interval_steps
+                        * cfg.timestep_fs / 1.0e6)
         frame_pdbs = []
+        frame_meta = []  # aligned with frame_pdbs: {repeat, frameInRep, timeNs}
         for i, traj in enumerate(trajectories, 1):
-            frame_pdbs += frames.extract_frames(
+            pdbs = frames.extract_frames(
                 traj, paths.minimized_pdb,
                 os.path.join(paths.frames_dir, "rep{0}".format(i)), cfg.frame_stride)
+            for k, pdb in enumerate(pdbs):
+                frame_pdbs.append(pdb)
+                frame_meta.append({"repeat": i, "frameInRep": k,
+                                   "timeNs": round(k * ns_per_frame, 4)})
         combined = frames.combine_trajectories(
             trajectories, paths.minimized_pdb, paths.combined_trajectory, cfg.frame_stride)
         manifest.add_step("extract_frames", status=STATUS_COMPLETED)
+
+        # Per-repeat structural time-series (Rg / Cα-RMSD / SASA over time) for the
+        # Structural Analysis tab. Computed on the solute; advisory (never fatal).
+        time_series = []
+        for i in range(1, cfg.n_repeats + 1):
+            ts = frames.structural_timeseries(
+                paths.repeat_trajectory(i), paths.minimized_pdb, stride=cfg.frame_stride)
+            for row in ts:
+                row["repeat"] = i
+                row["timeNs"] = round(row["frame"] * ns_per_frame, 4)
+                time_series.append(row)
+        if time_series:
+            manifest.set_parameter("timeSeries", time_series)
 
         # 5. SAXS analysis (FoXS per frame + MultiFoXS ensemble)
         if cfg.uses_saxs:
@@ -220,7 +244,15 @@ class Workflow:
             for gi, (pdb, rec) in enumerate(zip(frame_pdbs, records)):
                 rec["frame"] = gi
                 rec["rg"] = frames.rg_of_pdb(pdb)
-                per_frame.append({"frame": gi, "chi2": rec.get("chi2"), "rg": rec["rg"]})
+                meta = frame_meta[gi] if gi < len(frame_meta) else {}
+                per_frame.append({
+                    "frame": gi,
+                    "repeat": meta.get("repeat"),
+                    "frameInRep": meta.get("frameInRep"),
+                    "timeNs": meta.get("timeNs"),
+                    "chi2": rec.get("chi2"),
+                    "rg": rec["rg"],
+                })
             manifest.set_parameter("perFrame", per_frame)
             summary = foxs.summarize_fits(records)
             for key in ("bestChi2", "bestFrame", "rgMean"):
@@ -252,6 +284,25 @@ class Workflow:
                 for f in cluster.get("outputFiles", []):
                     manifest.add_output("summaryTables", f)
                 manifest.set_parameter("nClusters", cluster.get("nClusters"))
+                # PCA scatter (chi^2-coloured) for the Structural Analysis tab.
+                # PCA_coords row i aligns with combined frame i == perFrame[i].
+                pca_rows = frames.read_pca_coords(
+                    os.path.join(paths.clustering_dir, "PCA_coords.txt"))
+                if pca_rows:
+                    pf = manifest.parameters.get("perFrame", []) if cfg.uses_saxs else []
+                    labels = cluster.get("labels", [])
+                    pca = []
+                    for i, row in enumerate(pca_rows):
+                        if len(row) < 2:
+                            continue
+                        pca.append({
+                            "frame": i,
+                            "pc1": row[0],
+                            "pc2": row[1],
+                            "chi2": (pf[i].get("chi2") if i < len(pf) else None),
+                            "cluster": (int(labels[i]) if i < len(labels) else None),
+                        })
+                    manifest.set_parameter("pca", pca)
         except MissingDependencyError as exc:
             manifest.add_step("cluster", status=STATUS_FAILED)
             manifest.add_note("clustering skipped: {0}".format(exc))
