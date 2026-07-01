@@ -225,7 +225,14 @@ class Workflow:
         for i in range(1, cfg.n_repeats + 1):
             ts = frames.structural_timeseries(
                 paths.repeat_trajectory(i), paths.minimized_pdb, stride=cfg.frame_stride)
+            # Total Energy comes from the StateDataReporter log (one row per DCD
+            # frame); the time-series is strided, so frame k maps to log row
+            # k*frame_stride. Attach it as the solvent-free energy trace.
+            energies = frames.read_energy_series(paths.repeat_log(i))
             for row in ts:
+                log_idx = row["frame"] * cfg.frame_stride
+                row["energy"] = (energies[log_idx]
+                                 if 0 <= log_idx < len(energies) else None)
                 row["repeat"] = i
                 row["timeNs"] = round(row["frame"] * ns_per_frame, 4)
                 time_series.append(row)

@@ -39,6 +39,55 @@ def _solute(traj, selection):
     return traj.atom_slice(idx)
 
 
+def _align(traj, selection="name CA"):
+    """Rigid-body superpose every frame onto frame 0 (in place), the mdtraj
+    analogue of GROMACS ``trjconv -fit rot+trans``.
+
+    Removes global translation/rotation so that (a) PCA of the combined
+    trajectory reflects internal conformational change rather than drift/PBC
+    jumps and (b) the trajectory movie stays centred in view instead of the
+    protein flying out of frame. Best-effort: returns ``traj`` unchanged on any
+    error (alignment is advisory, never fatal).
+    """
+    try:
+        idx = traj.topology.select(selection)
+        traj.superpose(traj, 0, atom_indices=(idx if len(idx) else None))
+    except Exception:  # noqa: BLE001 - alignment is advisory
+        pass
+    return traj
+
+
+def read_energy_series(log_path):
+    """Read the Total Energy (kJ/mol) column from an OpenMM StateDataReporter log.
+
+    The production log is a CSV with a quoted header
+    (``"Step","Potential Energy (kJ/mole)","Total Energy (kJ/mole)",...``); one
+    row per reported step (same cadence as the DCD frames). Returns a list of
+    floats (None for unparseable rows), or [] if the column is missing/unreadable.
+    """
+    try:
+        with open(log_path) as fh:
+            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+        if not lines:
+            return []
+        header = [h.strip().strip('#').strip('"') for h in lines[0].split(",")]
+        col = next((i for i, h in enumerate(header)
+                    if h.lower().startswith("total energy")), None)
+        if col is None:
+            return []
+        out = []
+        for row in lines[1:]:
+            parts = row.split(",")
+            if len(parts) > col:
+                try:
+                    out.append(float(parts[col]))
+                except ValueError:
+                    out.append(None)
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def extract_frames(trajectory, topology, out_dir, stride=2, selection=DEFAULT_SELECTION):
     """Write stride-sampled SOLUTE frames as ``structure_<i>.pdb`` into ``out_dir``.
 
@@ -48,7 +97,7 @@ def extract_frames(trajectory, topology, out_dir, stride=2, selection=DEFAULT_SE
     mdtraj = _require_mdtraj()
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
-    traj = _solute(mdtraj.load(trajectory, top=topology, stride=stride), selection)
+    traj = _align(_solute(mdtraj.load(trajectory, top=topology, stride=stride), selection))
     written = []
     for i in range(traj.n_frames):
         path = os.path.join(out_dir, "structure_{0}.pdb".format(i))
@@ -76,6 +125,13 @@ def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELE
             sasa = mdtraj.shrake_rupley(traj, mode="atom").sum(axis=1)
         except Exception:  # noqa: BLE001 - SASA is advisory
             sasa = [None] * traj.n_frames
+        # Per-frame solute H-bond count (Wernet-Nilsson), the solvent-free
+        # analogue of the GROMACS `gmx hbond` system count. Advisory.
+        try:
+            hb = mdtraj.wernet_nilsson(traj)
+            hbonds = [len(x) for x in hb]
+        except Exception:  # noqa: BLE001 - H-bond count is advisory
+            hbonds = [None] * traj.n_frames
         out = []
         for i in range(traj.n_frames):
             out.append({
@@ -83,6 +139,7 @@ def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELE
                 "rg": float(rg[i]),
                 "rmsd": float(rmsd[i]),
                 "sasa": (float(sasa[i]) if sasa[i] is not None else None),
+                "hbonds": (int(hbonds[i]) if hbonds[i] is not None else None),
             })
         return out
     except Exception:  # noqa: BLE001 - time-series is advisory; never fail the run
@@ -137,6 +194,7 @@ def combine_trajectories(trajectories, topology, out_path, stride=1,
     combined = frames[0]
     for extra in frames[1:]:
         combined = combined.join(extra)
+    _align(combined)  # rigid-body fit so PCA reflects internal motion, not drift
     combined.save_dcd(out_path)
     # Solute-only topology for downstream loaders (clustering).
     top_pdb = os.path.splitext(out_path)[0] + ".pdb"
