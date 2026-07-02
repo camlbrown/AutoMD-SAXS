@@ -225,3 +225,89 @@ def run_clustering(
         "nClusters": len(clone.centers),
         "outputFiles": [csv_path],
     }
+
+
+def run_clustering_sweep(
+    traj: str,
+    topo: str,
+    out_dir: str,
+    at_sel: str = "name CA",
+    pca: int = 2,
+    pdc_values: Sequence[float] = (1, 2, 3, 4, 5, 6, 7),
+    n_resize: float = 4.0,
+    filt: float = 0.1,
+    verbose: bool = False,
+) -> Dict[str, object]:
+    """Run CLoNe at several ``pdc`` values over one PCA-reduced trajectory.
+
+    The original AutoMD-SAXS ``run_CLoNe.sh`` clustered the aligned trajectory at
+    a range of ``pdc`` values (1, 3, 5, 7) so the user could pick the granularity.
+    PCA is independent of ``pdc``, so we compute it once (writing ``PCA_coords.txt``)
+    and only re-run the cheap CLoNe step per ``pdc``. Returns the shared PCA coords
+    plus, for each ``pdc``, the cluster labels / centre count / summary.
+
+    Returns ``{"pcaCoords", "headers", "sweep": [{pdc, nClusters, labels,
+    summary, outputFiles}], "skipped"?}``.
+    """
+    try:
+        import numpy as np
+        import mdtraj
+        from sklearn.decomposition import PCA
+    except ImportError as exc:
+        raise MissingDependencyError(
+            "Structural clustering requires mdtraj, scikit-learn, numpy and scipy "
+            "(all in automdsaxs.yml). Original import error: {0}".format(exc)
+        )
+    from .clone import CLoNe
+
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir)
+
+    struct_ens = mdtraj.load(traj, top=topo)
+    # PCA needs at least pca+1 samples; CLoNe needs a handful of frames.
+    min_frames = max(3, pca + 1)
+    if struct_ens.n_frames < min_frames:
+        return {"pcaCoords": [], "headers": [], "sweep": [],
+                "skipped": "too few frames for clustering ({0} < {1})".format(
+                    struct_ens.n_frames, min_frames)}
+
+    selection = struct_ens.topology.select(at_sel)
+    coords = struct_ens.xyz[:, selection]
+    coords = coords.reshape(coords.shape[0], coords.shape[1] * coords.shape[2])
+
+    pca_obj = PCA(n_components=pca)
+    reduced = pca_obj.fit_transform(coords)
+    ev = pca_obj.explained_variance_ratio_
+    headers = ["PC{0}({1:.2f})".format(x + 1, ev[x]) for x in range(pca)]
+    with open(os.path.join(out_dir, "PCA_coords.txt"), "w") as fh:
+        fh.write(" ".join(headers) + "\n")
+        for row in reduced:
+            fh.write(" ".join("{0:f}".format(v) for v in row) + "\n")
+
+    reduced_rows = [list(r) for r in np.asarray(reduced)]
+    sweep = []
+    for pdc in pdc_values:
+        try:
+            clone = CLoNe(pdc=pdc, n_resize=n_resize, filt=filt, verbose=verbose)
+            clone.fit(reduced)
+            summary = cluster_summary(
+                reduced_rows, list(clone.labels_), list(clone.centers),
+                headers, list(clone.labels_all))
+            csv_path = write_cluster_summary_csv(
+                summary, os.path.join(out_dir, "Summary_clusters_pdc{0}.csv".format(pdc)))
+            sweep.append({
+                "pdc": pdc,
+                "nClusters": len(clone.centers),
+                "labels": [int(x) for x in clone.labels_],
+                "summary": summary,
+                "outputFiles": [csv_path],
+            })
+        except Exception as exc:  # noqa: BLE001 - one pdc failing must not kill the sweep
+            sweep.append({"pdc": pdc, "nClusters": 0, "labels": [],
+                          "summary": [], "outputFiles": [], "error": str(exc)})
+
+    return {
+        "pcaCoords": [[float(v) for v in row] for row in reduced_rows],
+        "headers": headers,
+        "sweep": sweep,
+    }

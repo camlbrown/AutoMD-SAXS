@@ -45,13 +45,79 @@ def foxs_fit_command(experimental_dat: str, pdb: str, extra=None) -> List[str]:
     return argv
 
 
-def multifoxs_command(experimental_dat: str, profiles, output: Optional[str] = None) -> List[str]:
-    """Ensemble selection over profile ``.dat`` files (``multi_foxs <exp> <profiles>``)."""
-    argv = [MULTIFOXS, experimental_dat]
-    if output:
-        argv += ["-o", output]
-    argv.extend(list(profiles))
-    return argv
+def multifoxs_command(experimental_dat: str, profiles, num_states: int = 5) -> List[str]:
+    """Ensemble selection over structures (``multi_foxs -s N <exp> <inputs...>``).
+
+    ``multi_foxs`` writes its outputs (``ensembles_size_<k>.txt`` and
+    ``multi_state_model_<k>_1_1.dat``) to the CURRENT WORKING DIRECTORY, so the
+    caller must run it in the desired output dir. It has NO output-file flag
+    (``-o`` is ``--offset``). ``inputs`` may be PDB files (partial profiles
+    computed internally, matching the BilboMD/Carbonara invocation) or profile
+    ``.dat`` files. ``-s`` caps the maximal ensemble size.
+    """
+    return [MULTIFOXS, "-s", str(num_states), experimental_dat] + list(profiles)
+
+
+def parse_multifoxs_ensembles(text: str) -> Optional[Dict[str, object]]:
+    """Parse a ``ensembles_size_<k>.txt`` file into the BEST ensemble.
+
+    Format (port of the Carbonara ``parseMultiFoxsEnsembles``): ensemble header
+    lines start with the rank digit in column 0 and carry chi^2 as the 2nd
+    ``|``-field; indented species lines carry ``<weight> | <profile/pdb>``.
+    Returns ``{chi2, members:[{pdb, weight}]}`` for the first (best) ensemble, or
+    ``None``.
+    """
+    best = None
+    cur = None
+    for raw in text.split("\n"):
+        if not raw.strip():
+            continue
+        if raw[:1].isdigit():
+            if best is not None:
+                break  # only the first (best) ensemble is needed
+            parts = raw.split("|")
+            chi2 = None
+            if len(parts) > 1:
+                try:
+                    chi2 = float(parts[1].strip())
+                except ValueError:
+                    chi2 = None
+            cur = {"chi2": chi2, "members": []}
+            best = cur
+        elif cur is not None:
+            parts = raw.split("|")
+            if len(parts) >= 3:
+                try:
+                    weight = float(parts[1].strip().split()[0])
+                except (ValueError, IndexError):
+                    continue
+                tokens = parts[2].strip().split()
+                if tokens:
+                    cur["members"].append({"pdb": tokens[0], "weight": weight})
+    if best and best["members"]:
+        return best
+    return None
+
+
+def parse_multifoxs_fit(text: str) -> List[Dict[str, float]]:
+    """Parse a ``multi_state_model_*.dat``/``.fit`` ensemble fit curve.
+
+    Returns rows ``{q, exp, error, model}`` (port of Carbonara ``parseMultiFoxsFit``).
+    """
+    rows = []
+    for raw in text.split("\n"):
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        p = s.split()
+        if len(p) < 4:
+            continue
+        try:
+            q, exp, error, model = float(p[0]), float(p[1]), float(p[2]), float(p[3])
+        except ValueError:
+            continue
+        rows.append({"q": q, "exp": exp, "error": error, "model": model})
+    return rows
 
 
 # --------------------------------------------------------------------------- #
@@ -145,13 +211,70 @@ def run_foxs_fits(frame_pdbs, experimental_dat, runner, cwd=None):
     return records
 
 
-def run_multifoxs(profiles, experimental_dat, runner, output, cwd=None):
-    """Run MultiFoXS ensemble selection over profile files via the runner."""
+def run_multifoxs(inputs, experimental_dat, runner, out_dir, num_states=5,
+                  frame_of=None):
+    """Run MultiFoXS ensemble selection and parse the result.
+
+    ``inputs`` are the structures/profiles to combine (PDB frames, matching the
+    Carbonara/BilboMD invocation). multi_foxs runs in ``out_dir`` (its outputs
+    land in cwd) and, for each ensemble size ``k`` from 1..num_states, writes
+    ``ensembles_size_<k>.txt`` + ``multi_state_model_<k>_1_1.dat``. Returns a
+    structured summary::
+
+        {"ensembles": [{"size", "chi2", "members": [{"frame", "weight"}]}],
+         "best": {"size", "chi2", "curve": [{"q","exp","error","model"}]}}
+
+    ``frame_of`` maps a member filename back to a frame index (defaults to the
+    ``structure_<n>`` pattern). Returns ``None`` in dry-run or if nothing parsed.
+    """
+    import glob
     import os
 
-    argv = multifoxs_command(experimental_dat, profiles, output=output)
-    runner.run(argv, label="multifoxs", cwd=cwd)
-    return output
+    argv = multifoxs_command(experimental_dat, inputs, num_states=num_states)
+    runner.run(argv, label="multifoxs", cwd=out_dir)
+    if runner.dry_run:
+        return None
+
+    if frame_of is None:
+        def frame_of(name):
+            return frame_index(os.path.basename(name))
+
+    def _read_fit_curve(size):
+        for ext in (".dat", ".fit"):
+            fit_path = os.path.join(
+                out_dir, "multi_state_model_{0}_1_1{1}".format(size, ext))
+            if os.path.exists(fit_path):
+                with open(fit_path) as fh:
+                    curve = parse_multifoxs_fit(fh.read())
+                if curve:
+                    return curve
+        return []
+
+    ensembles = []
+    for ens_path in sorted(glob.glob(os.path.join(out_dir, "ensembles_size_*.txt"))):
+        m = re.search(r"ensembles_size_(\d+)\.txt$", ens_path)
+        if not m:
+            continue
+        size = int(m.group(1))
+        with open(ens_path) as fh:
+            parsed = parse_multifoxs_ensembles(fh.read())
+        if not parsed:
+            continue
+        members = [{"frame": frame_of(mem["pdb"]), "weight": mem["weight"]}
+                   for mem in parsed["members"]]
+        ensembles.append({"size": size, "chi2": parsed["chi2"],
+                          "members": members, "curve": _read_fit_curve(size)})
+
+    if not ensembles:
+        return None
+
+    ensembles.sort(key=lambda e: e["size"])
+    # Best = lowest chi^2 across sizes (guard None chi2).
+    scored = [e for e in ensembles if isinstance(e.get("chi2"), (int, float))]
+    best_ens = min(scored, key=lambda e: e["chi2"]) if scored else ensembles[0]
+    best = {"size": best_ens["size"], "chi2": best_ens.get("chi2"),
+            "curve": best_ens.get("curve", [])}
+    return {"ensembles": ensembles, "best": best}
 
 
 def best_fit(records: List[Dict[str, object]]) -> Optional[Dict[str, object]]:

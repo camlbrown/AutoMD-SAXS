@@ -5,6 +5,7 @@ config without importing OpenMM. :class:`Workflow` runs the stages; it imports t
 MD/prep layers lazily so a real run requires OpenMM but planning does not.
 """
 
+import glob
 import os
 from typing import List, Tuple
 
@@ -265,11 +266,37 @@ class Workflow:
             for key in ("bestChi2", "bestFrame", "rgMean"):
                 if summary.get(key) is not None:
                     manifest.set_metric(key, summary[key])
-            profiles = [r["fitFile"] for r in records if r.get("fitFile")]
-            if profiles:
-                ensemble = os.path.join(paths.ensemble_dir, "ensemble.dat")
-                foxs.run_multifoxs(profiles, cfg.saxs, runner, ensemble, cwd=paths.ensemble_dir)
-                manifest.add_output("saxsFits", ensemble)
+            # MultiFoXS ensemble fit over the MD frames (the FoXS-based analogue
+            # of the legacy GAJOE ensemble step). Pass the frame PDBs so multi_foxs
+            # computes partial profiles and fits c1/c2, matching the Carbonara
+            # invocation. Lenient: never fail the job on an ensemble-step error.
+            if frame_pdbs:
+                # Map a member filename multi_foxs echoes back to the GLOBAL frame
+                # index (frame_pdbs order == perFrame order). Prefer a full-path
+                # match (basenames collide across repeats: structure_5 in each).
+                basename_to_gi = {}
+                for gi, p in enumerate(frame_pdbs):
+                    basename_to_gi.setdefault(os.path.basename(p), gi)
+                path_to_gi = {p: gi for gi, p in enumerate(frame_pdbs)}
+
+                def _member_frame(name):
+                    if name in path_to_gi:
+                        return path_to_gi[name]
+                    return basename_to_gi.get(os.path.basename(name))
+
+                try:
+                    mf = foxs.run_multifoxs(
+                        frame_pdbs, cfg.saxs, runner, paths.ensemble_dir,
+                        num_states=5, frame_of=_member_frame)
+                    if mf:
+                        manifest.set_parameter("multifoxs", mf)
+                    for f in sorted(glob.glob(
+                            os.path.join(paths.ensemble_dir, "ensembles_size_*.txt"))
+                            + glob.glob(os.path.join(
+                                paths.ensemble_dir, "multi_state_model_*"))):
+                        manifest.add_output("saxsFits", f)
+                except Exception as exc:  # noqa: BLE001 - ensemble step is advisory
+                    manifest.add_note("MultiFoXS ensemble failed (non-fatal): {0}".format(exc))
             manifest.add_step("foxs", status=STATUS_COMPLETED)
             manifest.add_step("multifoxs", status=STATUS_COMPLETED)
 
@@ -280,24 +307,39 @@ class Workflow:
         try:
             # The combined trajectory is solute-only, so cluster against the
             # solute-only topology written beside it (not the solvated structure).
-            cluster = structural.run_clustering(
+            # Sweep a range of CLoNe pdc values (granularity), like the legacy
+            # run_CLoNe.sh; PCA is shared across pdc so it is computed once.
+            pdc_values = [1, 2, 3, 4, 5, 6, 7]
+            default_pdc = 4  # matches the previous single-run default
+            cluster = structural.run_clustering_sweep(
                 combined, paths.combined_topology, paths.clustering_dir,
-                at_sel="name CA", pca=2)
+                at_sel="name CA", pca=2, pdc_values=pdc_values)
             if cluster.get("skipped"):
                 manifest.add_step("cluster", status=STATUS_COMPLETED)
                 manifest.add_note("clustering skipped: {0}".format(cluster["skipped"]))
             else:
                 manifest.add_step("cluster", status=STATUS_COMPLETED)
-                for f in cluster.get("outputFiles", []):
-                    manifest.add_output("summaryTables", f)
-                manifest.set_parameter("nClusters", cluster.get("nClusters"))
+                sweep = cluster.get("sweep", [])
+                for entry in sweep:
+                    for f in entry.get("outputFiles", []):
+                        manifest.add_output("summaryTables", f)
+                # Per-pdc clusterings for the UI toggle: {pdc, nClusters, labels}.
+                clusterings = [{"pdc": e["pdc"], "nClusters": e["nClusters"],
+                                "labels": e["labels"]} for e in sweep]
+                manifest.set_parameter("clusterings", clusterings)
+                default_entry = next(
+                    (e for e in sweep if e["pdc"] == default_pdc),
+                    (sweep[0] if sweep else None))
+                if default_entry:
+                    manifest.set_parameter("nClusters", default_entry["nClusters"])
+                    manifest.set_parameter("defaultPdc", default_pdc)
                 # PCA scatter (chi^2-coloured) for the Structural Analysis tab.
-                # PCA_coords row i aligns with combined frame i == perFrame[i].
-                pca_rows = frames.read_pca_coords(
-                    os.path.join(paths.clustering_dir, "PCA_coords.txt"))
+                # PCA row i aligns with combined frame i == perFrame[i]. Cluster
+                # label uses the default pdc; the UI can switch via `clusterings`.
+                pca_rows = cluster.get("pcaCoords", [])
                 if pca_rows:
                     pf = manifest.parameters.get("perFrame", []) if cfg.uses_saxs else []
-                    labels = cluster.get("labels", [])
+                    labels = default_entry["labels"] if default_entry else []
                     pca = []
                     for i, row in enumerate(pca_rows):
                         if len(row) < 2:
