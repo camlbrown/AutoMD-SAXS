@@ -70,8 +70,8 @@ _FIELDS = (
     "simulation_time_ns", "timestep_fs", "n_repeats", "temperature_K",
     "ionic_concentration_M", "ph", "disulfide", "box_padding_nm",
     "equilibration_ns", "minimize_max_iterations", "nonbonded_cutoff_nm",
-    "friction_per_ps", "report_interval_steps", "frame_stride", "seed",
-    "platform", "hmr", "extra",
+    "friction_per_ps", "report_interval_steps", "frame_stride",
+    "frame_interval_ns", "seed", "platform", "hmr", "extra",
 )
 
 
@@ -117,6 +117,10 @@ class OpenMMConfig:
         friction_per_ps=1.0,
         report_interval_steps=5000,
         frame_stride=2,
+        # Extract one frame per this many ns of simulation (default 0.5 ns), so a
+        # 3 ns repeat yields ~6 frames in the trajectory / analysis plots / viewer.
+        # Set to None/0 to fall back to the raw frame_stride.
+        frame_interval_ns=0.5,
         seed=None,
         platform=None,               # None/"auto" -> fastest available
         hmr=False,                   # Hydrogen Mass Repartitioning (4 fs, ~2x)
@@ -146,6 +150,7 @@ class OpenMMConfig:
         self.friction_per_ps = friction_per_ps
         self.report_interval_steps = report_interval_steps
         self.frame_stride = frame_stride
+        self.frame_interval_ns = frame_interval_ns
         self.seed = seed
         self.platform = platform
         self.extra = {} if extra is None else dict(extra)
@@ -218,6 +223,25 @@ class OpenMMConfig:
 
     def equilibration_steps(self) -> int:
         return self._steps(self.equilibration_ns)
+
+    def effective_frame_stride(self) -> int:
+        """DCD-frame stride for extraction, derived from ``frame_interval_ns``.
+
+        When ``frame_interval_ns`` is set (default 0.5 ns), frames are sampled at
+        that simulation-time spacing regardless of timestep: a 3 ns repeat yields
+        ~6 frames. Falls back to the explicit ``frame_stride`` when
+        ``frame_interval_ns`` is unset/zero.
+        """
+        if self.frame_interval_ns and self.frame_interval_ns > 0:
+            per_dcd_ns = self.report_interval_steps * self.timestep_fs / 1.0e6
+            if per_dcd_ns > 0:
+                return max(1, int(round(self.frame_interval_ns / per_dcd_ns)))
+        return self.frame_stride
+
+    def frame_interval_effective_ns(self) -> float:
+        """Actual ns between extracted frames (for labelling plot x-axes)."""
+        return self.effective_frame_stride() * self.report_interval_steps \
+            * self.timestep_fs / 1.0e6
 
     # ------------------------------------------------------------------ #
     def to_dict(self) -> Dict[str, Any]:

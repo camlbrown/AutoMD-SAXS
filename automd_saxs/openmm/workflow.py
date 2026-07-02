@@ -43,7 +43,8 @@ def plan_stages(config: OpenMMConfig) -> List[Stage]:
             "{0} ns at {1:g} fs, {2} K ({3} steps)".format(
                 config.simulation_time_ns, config.timestep_fs,
                 config.temperature_K, config.production_steps())))
-    stages.append(("extract_frames", "frame stride {0}".format(config.frame_stride)))
+    stages.append(("extract_frames", "one frame per {0} ns (stride {1})".format(
+        config.frame_interval_effective_ns(), config.effective_frame_stride())))
     if config.uses_saxs:
         stages.append(("foxs", "per-frame FoXS chi^2 vs experimental SAXS"))
         stages.append(("multifoxs", "MultiFoXS ensemble selection"))
@@ -245,22 +246,24 @@ class Workflow:
         # and its simulation time (ns) so the dashboard can toggle x-axis
         # (frame/ns) and per-repeat series.
         self._write_progress(paths, cfg, "extract_frames", current_repeat=cfg.n_repeats)
-        # ns per extracted frame: DCD saves every report_interval_steps, then we
-        # sub-sample by frame_stride.
-        ns_per_frame = (cfg.frame_stride * cfg.report_interval_steps
+        # Frames are sub-sampled from the DCD at ~frame_interval_ns spacing
+        # (default 0.5 ns -> ~6 frames per 3 ns repeat). The stride is derived
+        # from the interval so it holds regardless of timestep (2 vs 4 fs HMR).
+        frame_stride = cfg.effective_frame_stride()
+        ns_per_frame = (frame_stride * cfg.report_interval_steps
                         * cfg.timestep_fs / 1.0e6)
         frame_pdbs = []
         frame_meta = []  # aligned with frame_pdbs: {repeat, frameInRep, timeNs}
         for i, traj in enumerate(trajectories, 1):
             pdbs = frames.extract_frames(
                 traj, prod_topology,
-                os.path.join(paths.frames_dir, "rep{0}".format(i)), cfg.frame_stride)
+                os.path.join(paths.frames_dir, "rep{0}".format(i)), frame_stride)
             for k, pdb in enumerate(pdbs):
                 frame_pdbs.append(pdb)
                 frame_meta.append({"repeat": i, "frameInRep": k,
                                    "timeNs": round(k * ns_per_frame, 4)})
         combined = frames.combine_trajectories(
-            trajectories, prod_topology, paths.combined_trajectory, cfg.frame_stride)
+            trajectories, prod_topology, paths.combined_trajectory, frame_stride)
         manifest.add_step("extract_frames", status=STATUS_COMPLETED)
 
         # Per-repeat structural time-series (Rg / Cα-RMSD / SASA over time) for the
@@ -268,13 +271,13 @@ class Workflow:
         time_series = []
         for i in range(1, cfg.n_repeats + 1):
             ts = frames.structural_timeseries(
-                paths.repeat_trajectory(i), prod_topology, stride=cfg.frame_stride)
+                paths.repeat_trajectory(i), prod_topology, stride=frame_stride)
             # Total Energy comes from the StateDataReporter log (one row per DCD
             # frame); the time-series is strided, so frame k maps to log row
             # k*frame_stride. Attach it as the solvent-free energy trace.
             energies = frames.read_energy_series(paths.repeat_log(i))
             for row in ts:
-                log_idx = row["frame"] * cfg.frame_stride
+                log_idx = row["frame"] * frame_stride
                 row["energy"] = (energies[log_idx]
                                  if 0 <= log_idx < len(energies) else None)
                 row["repeat"] = i
