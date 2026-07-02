@@ -10,6 +10,8 @@ even though the numerical run needs OpenMM + (ideally) a GPU.
 """
 
 import math
+import os
+import subprocess
 
 from ..command_runner import MissingDependencyError
 from .schema import OpenMMConfig
@@ -34,6 +36,27 @@ def _require_openmm():
     return openmm, app, unit
 
 
+def gpu_count() -> int:
+    """Number of GPUs visible to this process (for parallelising repeats).
+
+    Honours the k8s / CUDA convention: if ``CUDA_VISIBLE_DEVICES`` is set (the
+    device plugin sets it per pod) its entry count wins; otherwise fall back to
+    ``nvidia-smi -L``. Returns >=1 (1 means "no GPU fan-out", i.e. run repeats
+    sequentially). Never raises.
+    """
+    cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if cvd is not None:
+        devs = [d for d in cvd.split(",") if d.strip() != ""]
+        return max(1, len(devs))
+    try:
+        out = subprocess.run(["nvidia-smi", "-L"], capture_output=True,
+                             text=True, timeout=10)
+        n = len([ln for ln in out.stdout.splitlines() if ln.strip().startswith("GPU ")])
+        return max(1, n)
+    except Exception:  # noqa: BLE001 - GPU probing is best-effort
+        return 1
+
+
 def _select_platform(openmm, requested):
     if requested and requested.lower() != "auto":
         return openmm.Platform.getPlatformByName(requested)
@@ -46,15 +69,56 @@ def _select_platform(openmm, requested):
     return None
 
 
+def _platform_properties(config, platform, device_index):
+    """Platform properties: pin to a GPU (device_index) and pick precision.
+
+    ``device_index`` selects a specific CUDA/OpenCL device so parallel repeats
+    each run on their own GPU. HMR (larger timestep) uses mixed precision for
+    energy stability; otherwise the platform default (single on CUDA) is fastest.
+    """
+    if platform is None:
+        return None
+    name = platform.getName()
+    props = {}
+    if name == "CUDA":
+        if device_index is not None:
+            props["CudaDeviceIndex"] = str(device_index)
+        if getattr(config, "hmr", False):
+            props["CudaPrecision"] = "mixed"
+    elif name == "OpenCL":
+        if device_index is not None:
+            props["OpenCLDeviceIndex"] = str(device_index)
+        if getattr(config, "hmr", False):
+            props["OpenCLPrecision"] = "mixed"
+    return props or None
+
+
+def _make_simulation(config, app, openmm, unit, topology, system, device_index=None):
+    """Build a Simulation, pinning to ``device_index`` with the right properties."""
+    platform = _select_platform(openmm, config.platform)
+    props = _platform_properties(config, platform, device_index)
+    if platform is not None and props:
+        return app.Simulation(topology, system, _integrator(openmm, unit, config),
+                              platform, props)
+    return app.Simulation(topology, system, _integrator(openmm, unit, config), platform)
+
+
 def build_system(config: OpenMMConfig, app, unit, topology):
-    """Create an OpenMM System with PME and H-bond constraints."""
+    """Create an OpenMM System with PME and H-bond constraints.
+
+    When ``config.hmr`` is set, Hydrogen Mass Repartitioning transfers mass onto
+    hydrogens (``hydrogenMass=1.5 amu``) so the integration timestep can be ~2x
+    larger (4 fs) for ~2x throughput at negligible accuracy cost.
+    """
     forcefield = app.ForceField(*config.forcefield_files())
-    return forcefield.createSystem(
-        topology,
+    kwargs = dict(
         nonbondedMethod=app.PME,
         nonbondedCutoff=config.nonbonded_cutoff_nm * unit.nanometer,
         constraints=app.HBonds,
     )
+    if getattr(config, "hmr", False):
+        kwargs["hydrogenMass"] = 1.5 * unit.amu
+    return forcefield.createSystem(topology, **kwargs)
 
 
 def _integrator(openmm, unit, config):
@@ -73,8 +137,7 @@ def minimize(config: OpenMMConfig, solvated_pdb: str, out_pdb: str):
     openmm, app, unit = _require_openmm()
     pdb = app.PDBFile(solvated_pdb)
     system = build_system(config, app, unit, pdb.topology)
-    simulation = app.Simulation(pdb.topology, system, _integrator(openmm, unit, config),
-                                _select_platform(openmm, config.platform))
+    simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system)
     simulation.context.setPositions(pdb.positions)
     simulation.minimizeEnergy(maxIterations=config.minimize_max_iterations)
     state = simulation.context.getState(getEnergy=True, getPositions=True)
@@ -94,8 +157,7 @@ def equilibrate(config: OpenMMConfig, minimized_pdb: str, out_state: str):
     pdb = app.PDBFile(minimized_pdb)
     system = build_system(config, app, unit, pdb.topology)
     system.addForce(openmm.MonteCarloBarostat(1.0 * unit.bar, config.temperature_K * unit.kelvin))
-    simulation = app.Simulation(pdb.topology, system, _integrator(openmm, unit, config),
-                                _select_platform(openmm, config.platform))
+    simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system)
     simulation.context.setPositions(pdb.positions)
     simulation.context.setVelocitiesToTemperature(config.temperature_K * unit.kelvin)
     simulation.step(config.equilibration_steps())
@@ -104,14 +166,18 @@ def equilibrate(config: OpenMMConfig, minimized_pdb: str, out_state: str):
 
 
 def production(config: OpenMMConfig, equilibrated_state: str, minimized_pdb: str,
-               out_dcd: str, log_path: str):
-    """Run one production replicate, writing a DCD trajectory + state log."""
+               out_dcd: str, log_path: str, device_index=None):
+    """Run one production replicate, writing a DCD trajectory + state log.
+
+    ``device_index`` pins this replicate to a specific GPU so repeats can run
+    concurrently across multiple GPUs (see workflow fan-out).
+    """
     openmm, app, unit = _require_openmm()
     pdb = app.PDBFile(minimized_pdb)
     system = build_system(config, app, unit, pdb.topology)
     system.addForce(openmm.MonteCarloBarostat(1.0 * unit.bar, config.temperature_K * unit.kelvin))
-    simulation = app.Simulation(pdb.topology, system, _integrator(openmm, unit, config),
-                                _select_platform(openmm, config.platform))
+    simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system,
+                                  device_index=device_index)
     simulation.loadState(equilibrated_state)
     # loadState carries over the equilibration step counter; reset it so each
     # repeat's StateDataReporter (and the live per-repeat ns counter derived from

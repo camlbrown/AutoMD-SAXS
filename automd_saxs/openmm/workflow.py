@@ -188,15 +188,42 @@ class Workflow:
         md.equilibrate(cfg, paths.minimized_pdb, paths.equilibrated_state)
         manifest.add_step("equilibrate", status=STATUS_COMPLETED)
 
-        # 3. production repeats
-        trajectories = []
-        for i in range(1, cfg.n_repeats + 1):
-            self._write_progress(paths, cfg, "production_rep{0}".format(i), current_repeat=i)
+        # 3. production repeats. Fan out across GPUs when more than one is
+        # visible: each repeat is pinned to its own CUDA device and they run
+        # concurrently (concurrency = min(n_repeats, n_gpus)). On a single GPU
+        # this collapses to the original sequential loop (concurrency 1).
+        trajectories = [paths.repeat_trajectory(i) for i in range(1, cfg.n_repeats + 1)]
+        n_gpus = md.gpu_count()
+        concurrency = max(1, min(cfg.n_repeats, n_gpus))
+
+        def _run_repeat(i):
             md.production(cfg, paths.equilibrated_state, paths.minimized_pdb,
-                          paths.repeat_trajectory(i), paths.repeat_log(i))
-            trajectories.append(paths.repeat_trajectory(i))
-            manifest.add_step("production_rep{0}".format(i), status=STATUS_COMPLETED)
-            manifest.add_output("trajectories", paths.repeat_trajectory(i))
+                          paths.repeat_trajectory(i), paths.repeat_log(i),
+                          device_index=((i - 1) % n_gpus))
+            return i
+
+        if concurrency <= 1:
+            for i in range(1, cfg.n_repeats + 1):
+                self._write_progress(paths, cfg, "production_rep{0}".format(i),
+                                     current_repeat=i)
+                _run_repeat(i)
+                manifest.add_step("production_rep{0}".format(i), status=STATUS_COMPLETED)
+                manifest.add_output("trajectories", paths.repeat_trajectory(i))
+        else:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            self._write_progress(paths, cfg, "production_rep1",
+                                 current_repeat=cfg.n_repeats)
+            manifest.add_note(
+                "production: {0} repeats across {1} GPU(s)".format(
+                    cfg.n_repeats, n_gpus))
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futures = {pool.submit(_run_repeat, i): i
+                           for i in range(1, cfg.n_repeats + 1)}
+                for fut in as_completed(futures):
+                    fut.result()  # propagate any repeat failure
+            for i in range(1, cfg.n_repeats + 1):
+                manifest.add_step("production_rep{0}".format(i), status=STATUS_COMPLETED)
+                manifest.add_output("trajectories", paths.repeat_trajectory(i))
 
         # 4. frame extraction + combine. Track which repeat each frame came from
         # and its simulation time (ns) so the dashboard can toggle x-axis

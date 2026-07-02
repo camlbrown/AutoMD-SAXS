@@ -71,7 +71,7 @@ _FIELDS = (
     "ionic_concentration_M", "ph", "disulfide", "box_padding_nm",
     "equilibration_ns", "minimize_max_iterations", "nonbonded_cutoff_nm",
     "friction_per_ps", "report_interval_steps", "frame_stride", "seed",
-    "platform", "extra",
+    "platform", "hmr", "extra",
 )
 
 
@@ -111,13 +111,15 @@ class OpenMMConfig:
         box_padding_nm=None,         # None -> derive from model Dmax at runtime
         equilibration_ns=0.2,
         minimize_max_iterations=0,   # 0 -> OpenMM runs until converged
-        # 1.2 nm matches the BilboMD OpenMM nonbonded cutoff convention.
-        nonbonded_cutoff_nm=1.2,
+        # 1.0 nm: standard PME real-space cutoff; ~1.2-1.4x faster than 1.2 nm
+        # (direct-space cost ~ cutoff^3) at equivalent accuracy with PME.
+        nonbonded_cutoff_nm=1.0,
         friction_per_ps=1.0,
         report_interval_steps=5000,
         frame_stride=2,
         seed=None,
         platform=None,               # None/"auto" -> fastest available
+        hmr=False,                   # Hydrogen Mass Repartitioning (4 fs, ~2x)
         extra=None,
     ):
         self.pdb = pdb
@@ -127,7 +129,11 @@ class OpenMMConfig:
         self.force_field = force_field
         self.water_model = water_model
         self.simulation_time_ns = simulation_time_ns
-        self.timestep_fs = timestep_fs
+        # Hydrogen Mass Repartitioning enables a larger stable timestep. When the
+        # caller leaves the default 2 fs, HMR bumps it to 4 fs (~2x throughput);
+        # an explicit non-default timestep is respected.
+        self.hmr = bool(hmr)
+        self.timestep_fs = 4.0 if (self.hmr and timestep_fs == 2.0) else timestep_fs
         self.n_repeats = n_repeats
         self.temperature_K = temperature_K
         self.ionic_concentration_M = ionic_concentration_M
