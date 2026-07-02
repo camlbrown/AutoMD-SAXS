@@ -39,6 +39,27 @@ def _solute(traj, selection):
     return traj.atom_slice(idx)
 
 
+def solute_indices(topology_pdb, selection=DEFAULT_SELECTION):
+    """Atom indices of the solute (protein) selection in ``topology_pdb``.
+
+    Used to write a protein-only production DCD (via an atomSubset reporter) so
+    trajectories are ~75x smaller than the full solvated system -- avoiding disk
+    blow-ups and cutting I/O. Falls back to all atoms if the selection is empty.
+    """
+    mdtraj = _require_mdtraj()
+    t = mdtraj.load(topology_pdb)
+    idx = t.topology.select(selection)
+    return [int(i) for i in idx] if len(idx) else list(range(t.n_atoms))
+
+
+def write_solute_topology(topology_pdb, out_pdb, selection=DEFAULT_SELECTION):
+    """Write a single-frame solute-only topology PDB (to read protein-only DCDs)."""
+    mdtraj = _require_mdtraj()
+    t = mdtraj.load(topology_pdb)
+    _solute(t, selection)[0].save_pdb(out_pdb)
+    return out_pdb
+
+
 def _align(traj, selection="name CA"):
     """Rigid-body superpose every frame onto frame 0 (in place), the mdtraj
     analogue of GROMACS ``trjconv -fit rot+trans``.

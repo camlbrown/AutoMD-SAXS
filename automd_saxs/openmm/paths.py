@@ -84,6 +84,12 @@ class OpenMMPaths:
         return os.path.join(self.job_dir, "production", "combined.pdb")
 
     @property
+    def solute_topology(self):
+        # Solute-only single-frame topology for reading the protein-only
+        # production DCDs (written before the production loop).
+        return os.path.join(self.job_dir, "production", "solute_top.pdb")
+
+    @property
     def config_path(self):
         return os.path.join(self.job_dir, "job.json")
 

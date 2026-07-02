@@ -192,6 +192,22 @@ class Workflow:
         # visible: each repeat is pinned to its own CUDA device and they run
         # concurrently (concurrency = min(n_repeats, n_gpus)). On a single GPU
         # this collapses to the original sequential loop (concurrency 1).
+        #
+        # Production DCDs are written PROTEIN-ONLY (atom subset) so they are
+        # ~75x smaller than the full solvated box -- this avoids disk-quota
+        # blow-ups on long/large runs and cuts I/O. Downstream frame extraction
+        # therefore reads them with the solute-only topology, not minimized_pdb.
+        try:
+            solute_top = frames.write_solute_topology(
+                paths.minimized_pdb, paths.solute_topology)
+            solute_idx = frames.solute_indices(paths.minimized_pdb)
+        except Exception as exc:  # noqa: BLE001 - fall back to full-system DCDs
+            manifest.add_note("protein-only DCD disabled (non-fatal): {0}".format(exc))
+            solute_top, solute_idx = None, None
+        # Topology used to read the production DCDs back: solute-only when we
+        # wrote protein-only DCDs, otherwise the full solvated minimized PDB.
+        prod_topology = solute_top if solute_idx else paths.minimized_pdb
+
         trajectories = [paths.repeat_trajectory(i) for i in range(1, cfg.n_repeats + 1)]
         n_gpus = md.gpu_count()
         concurrency = max(1, min(cfg.n_repeats, n_gpus))
@@ -199,7 +215,7 @@ class Workflow:
         def _run_repeat(i):
             md.production(cfg, paths.equilibrated_state, paths.minimized_pdb,
                           paths.repeat_trajectory(i), paths.repeat_log(i),
-                          device_index=((i - 1) % n_gpus))
+                          device_index=((i - 1) % n_gpus), atom_subset=solute_idx)
             return i
 
         if concurrency <= 1:
@@ -237,14 +253,14 @@ class Workflow:
         frame_meta = []  # aligned with frame_pdbs: {repeat, frameInRep, timeNs}
         for i, traj in enumerate(trajectories, 1):
             pdbs = frames.extract_frames(
-                traj, paths.minimized_pdb,
+                traj, prod_topology,
                 os.path.join(paths.frames_dir, "rep{0}".format(i)), cfg.frame_stride)
             for k, pdb in enumerate(pdbs):
                 frame_pdbs.append(pdb)
                 frame_meta.append({"repeat": i, "frameInRep": k,
                                    "timeNs": round(k * ns_per_frame, 4)})
         combined = frames.combine_trajectories(
-            trajectories, paths.minimized_pdb, paths.combined_trajectory, cfg.frame_stride)
+            trajectories, prod_topology, paths.combined_trajectory, cfg.frame_stride)
         manifest.add_step("extract_frames", status=STATUS_COMPLETED)
 
         # Per-repeat structural time-series (Rg / Cα-RMSD / SASA over time) for the
@@ -252,7 +268,7 @@ class Workflow:
         time_series = []
         for i in range(1, cfg.n_repeats + 1):
             ts = frames.structural_timeseries(
-                paths.repeat_trajectory(i), paths.minimized_pdb, stride=cfg.frame_stride)
+                paths.repeat_trajectory(i), prod_topology, stride=cfg.frame_stride)
             # Total Energy comes from the StateDataReporter log (one row per DCD
             # frame); the time-series is strided, so frame k maps to log row
             # k*frame_stride. Attach it as the solvent-free energy trace.

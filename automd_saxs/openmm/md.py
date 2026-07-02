@@ -165,12 +165,33 @@ def equilibrate(config: OpenMMConfig, minimized_pdb: str, out_state: str):
     return {"output": out_state}
 
 
+def _dcd_reporter(app, out_dcd, interval, atom_subset):
+    """A DCD reporter that writes only ``atom_subset`` (protein) when provided.
+
+    OpenMM's own DCDReporter has no atom-subset option, so we use mdtraj's
+    reporter to write a protein-only trajectory (~75x smaller than the full
+    solvated box). Falls back to the full-system OpenMM reporter if mdtraj is
+    unavailable or no subset is requested.
+    """
+    if atom_subset:
+        try:
+            import mdtraj
+            return mdtraj.reporters.DCDReporter(
+                out_dcd, interval, atomSubset=atom_subset)
+        except Exception:  # noqa: BLE001 - fall back to full-system DCD
+            pass
+    return app.DCDReporter(out_dcd, interval)
+
+
 def production(config: OpenMMConfig, equilibrated_state: str, minimized_pdb: str,
-               out_dcd: str, log_path: str, device_index=None):
+               out_dcd: str, log_path: str, device_index=None, atom_subset=None):
     """Run one production replicate, writing a DCD trajectory + state log.
 
     ``device_index`` pins this replicate to a specific GPU so repeats can run
-    concurrently across multiple GPUs (see workflow fan-out).
+    concurrently across multiple GPUs (see workflow fan-out). ``atom_subset``
+    (protein atom indices) makes the DCD protein-only -- far smaller and faster
+    to write; downstream frame extraction must read it with a solute-only
+    topology (see workflow).
     """
     openmm, app, unit = _require_openmm()
     pdb = app.PDBFile(minimized_pdb)
@@ -183,7 +204,8 @@ def production(config: OpenMMConfig, equilibrated_state: str, minimized_pdb: str
     # repeat's StateDataReporter (and the live per-repeat ns counter derived from
     # it) starts at step 0 / 0 ns.
     simulation.currentStep = 0
-    simulation.reporters.append(app.DCDReporter(out_dcd, config.report_interval_steps))
+    simulation.reporters.append(
+        _dcd_reporter(app, out_dcd, config.report_interval_steps, atom_subset))
     simulation.reporters.append(app.StateDataReporter(
         log_path, config.report_interval_steps, step=True, temperature=True,
         potentialEnergy=True, totalEnergy=True, speed=True))
