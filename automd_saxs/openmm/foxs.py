@@ -102,21 +102,41 @@ def parse_multifoxs_ensembles(text: str) -> Optional[Dict[str, object]]:
 def parse_multifoxs_fit(text: str) -> List[Dict[str, float]]:
     """Parse a ``multi_state_model_*.dat``/``.fit`` ensemble fit curve.
 
-    Returns rows ``{q, exp, error, model}`` (port of Carbonara ``parseMultiFoxsFit``).
+    IMPORTANT: multi_foxs writes the same data with DIFFERENT column orders in
+    the two files -- the ``.dat`` is ``q exp_intensity model_intensity error``
+    while the ``.fit`` is ``q exp_intensity error model_intensity``. We therefore
+    read the column order from the ``# q ...`` header comment rather than
+    assuming positions (assuming the wrong order swaps model and error, which
+    makes the model line collapse and the error bars balloon). Returns rows
+    ``{q, exp, model, error}``.
     """
+    lines = text.split("\n")
+    # Defaults: the IMP .fit layout (q, exp, error, model).
+    idx = {"q": 0, "exp_intensity": 1, "error": 2, "model_intensity": 3}
+    for raw in lines:
+        s = raw.strip()
+        if s.startswith("#") and "exp_intensity" in s:
+            cols = s.lstrip("#").split()
+            for name in ("q", "exp_intensity", "model_intensity", "error"):
+                if name in cols:
+                    idx[name] = cols.index(name)
+            break
+    qi, ei, mi, ri = (idx["q"], idx["exp_intensity"],
+                      idx["model_intensity"], idx["error"])
+    need = max(qi, ei, mi, ri)
     rows = []
-    for raw in text.split("\n"):
+    for raw in lines:
         s = raw.strip()
         if not s or s.startswith("#"):
             continue
         p = s.split()
-        if len(p) < 4:
+        if len(p) <= need:
             continue
         try:
-            q, exp, error, model = float(p[0]), float(p[1]), float(p[2]), float(p[3])
+            q, exp, model, error = float(p[qi]), float(p[ei]), float(p[mi]), float(p[ri])
         except ValueError:
             continue
-        rows.append({"q": q, "exp": exp, "error": error, "model": model})
+        rows.append({"q": q, "exp": exp, "model": model, "error": error})
     return rows
 
 

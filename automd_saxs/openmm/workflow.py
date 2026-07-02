@@ -63,6 +63,8 @@ def new_manifest(config: OpenMMConfig, status: str = STATUS_PLANNED) -> Manifest
         "waterModel": config.water_model.value,
         "simulationTimeNs": config.simulation_time_ns,
         "timestepFs": config.timestep_fs,
+        "hmr": config.hmr,
+        "frameIntervalNs": config.frame_interval_effective_ns(),
         "productionSteps": config.production_steps(),
         "nRepeats": config.n_repeats,
         "temperatureK": config.temperature_K,
