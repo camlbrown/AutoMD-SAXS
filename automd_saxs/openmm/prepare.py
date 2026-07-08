@@ -71,6 +71,11 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
 
     fixer = pdbfixer.PDBFixer(filename=protein_pdb)
     fixer.findMissingResidues()
+    # Convert modified residues (e.g. MSE selenomethionine -> MET) to their
+    # standard forms so amber14 has templates for them (robustness on raw PDBs).
+    fixer.findNonstandardResidues()
+    nonstandard = [(str(r), std) for r, std in fixer.nonstandardResidues]
+    fixer.replaceNonstandardResidues()
     fixer.findMissingAtoms()
     missing_residues = dict(fixer.missingResidues)
     missing_atoms = {str(k): [a.name for a in v] for k, v in fixer.missingAtoms.items()}
@@ -107,12 +112,27 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     # own hydrogens) into the prepared complex.
     ligands_audit = []
     lig_mols = []
+    ligand_warnings = []
     smiles_hints = getattr(config, "ligand_smiles", None) or {}
+    explicit = set(getattr(config, "ligand_resnames", None) or []) | set(smiles_hints)
     for resname, lines in classes["ligand"].items():
         lig_pdb = ligand.write_lines(
             lines, os.path.join(work_dir, "ligand_{0}.pdb".format(resname)))
-        mol = ligand.build_ligand_molecule(
-            lig_pdb, resname=resname, smiles=smiles_hints.get(resname))
+        try:
+            mol = ligand.build_ligand_molecule(
+                lig_pdb, resname=resname, smiles=smiles_hints.get(resname))
+        except Exception as exc:  # noqa: BLE001
+            # A residue the user explicitly asked to keep must not be silently
+            # dropped; otherwise strip the unparameterisable HETATM (e.g. a
+            # crystallisation agent with no hydrogens) and warn, so the job still
+            # runs. The Task 4 UI lets the user force-keep with a SMILES hint.
+            if resname in explicit:
+                raise
+            classes["stripped"][resname] = classes["stripped"].get(resname, 0) + len(lines)
+            ligand_warnings.append(
+                "stripped ligand candidate {0} (could not parameterise: {1})".format(
+                    resname, str(exc)[:120]))
+            continue
         lig_mols.append(mol)
         modeller.add(mol.to_topology().to_openmm(), mol.conformers[0].to_openmm())
         ligands_audit.append({
@@ -126,20 +146,61 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     if lig_mols and getattr(config, "ligand_sdf", None):
         ligand.write_ligand_sdf(lig_mols, config.ligand_sdf)
 
+    # Keep bound/structural ions (Ca2+, Zn2+, Pb2+, Fe, Mg, ...): merge them back
+    # as their own residues so amber14 parameterises them and solvation
+    # neutralises accounting for their charge. Merged after the protein so they
+    # never confuse chain-terminus detection.
+    ions_audit = {}
+    if getattr(config, "keep_ions", True) and classes["ion"]:
+        ions_audit = _merge_ions(modeller, classes["ion"], app, openmm, unit)
+
     with open(out_pdb, "w") as handle:
         app.PDBFile.writeFile(modeller.topology, modeller.positions, handle)
 
     return {
         "missingResidues": {str(k): v for k, v in missing_residues.items()},
+        "nonstandardResidues": nonstandard,
         "missingAtoms": missing_atoms,
         "pH": config.ph,
         "protonationMethod": proton_method,
         "protonationChanges": proton_changes,
         "ligands": ligands_audit,
+        "ligandWarnings": ligand_warnings,
         "strippedResidues": classes["stripped"],
-        "ionsSetAside": {k: len(v) for k, v in classes["ion"].items()},
+        "ions": ions_audit if ions_audit else {},
+        "ionsSetAside": ({} if getattr(config, "keep_ions", True)
+                         else {k: len(v) for k, v in classes["ion"].items()}),
         "output": out_pdb,
     }
+
+
+def _merge_ions(modeller, ion_classes, app, openmm, unit):
+    """Merge bound ions into the prepared complex as amber14-named residues.
+
+    ``ion_classes`` is ``{pdb_resname: [pdb lines]}``. Each ion becomes its own
+    single-atom residue named for the amber14 ion template (see
+    :func:`ligand.amber_ion_resname`) with the element taken from the PDB element
+    column (falling back to the residue name). Returns ``{amber_resname: count}``.
+    """
+    topology = app.Topology()
+    chain = topology.addChain("I")
+    positions = []
+    kept = {}
+    for pdb_resname, lines in ion_classes.items():
+        amber = ligand.amber_ion_resname(pdb_resname)
+        for line in lines:
+            element_symbol = (line[76:78].strip() or pdb_resname).capitalize()
+            try:
+                element = app.Element.getBySymbol(element_symbol)
+            except Exception:  # noqa: BLE001 - fall back to the residue name
+                element = app.Element.getBySymbol(pdb_resname.capitalize())
+            residue = topology.addResidue(amber, chain)
+            topology.addAtom(line[12:16].strip() or amber, element, residue)
+            x, y, z = float(line[30:38]), float(line[38:46]), float(line[46:54])
+            positions.append(openmm.Vec3(x, y, z) * 0.1)  # Angstrom -> nm
+            kept[amber] = kept.get(amber, 0) + 1
+    modeller.add(topology, positions * unit.nanometer)
+    return kept
 
 
 def solvate(config: OpenMMConfig, prepared_pdb: str, out_pdb: str, padding_nm: float):

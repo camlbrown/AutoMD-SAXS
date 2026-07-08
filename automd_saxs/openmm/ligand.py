@@ -49,9 +49,48 @@ CRYSTALLISATION_AGENTS = {
     "GOL", "EDO", "PEG", "PG4", "PGE", "1PE", "P6G", "MPD", "DMS", "DMSO",
     "SO4", "PO4", "ACT", "FMT", "MES", "EPE", "TRS", "IMD", "BME", "MRD",
     "BOG", "NAG", "MAN", "BMA", "FUC", "GAL", "CIT", "TAR", "MLI", "ACY",
+    "TBU", "MOH", "IPA", "ETX", "BU3", "PGO", "12P", "15P", "2PE", "XPE",
+    "SIN", "SCN", "AZI", "NO3", "NH4", "PEO", "OLC", "BME", "DTT", "GSH",
 }
 
 STANDARD_RESIDUES = _AA | _NUCLEIC
+
+# Map common PDB ion residue names to the amber14 ion template name so a bound
+# ion is kept and parameterised (Task 3). Most match directly; these are aliases.
+ION_ALIASES = {
+    "CAL": "CA", "CA2": "CA", "CA+2": "CA", "ZN2": "ZN", "MG2": "MG",
+    "MG+2": "MG", "MN2": "MN", "FE3": "FE", "NA+": "NA", "CL-": "CL", "K+": "K",
+    "POT": "K", "SOD": "NA", "CLA": "CL", "IOD": "IOD", "I": "IOD",
+}
+
+
+def amber_ion_resname(pdb_resname):
+    """amber14 ion template name for a PDB ion residue name (alias or identity)."""
+    return ION_ALIASES.get(pdb_resname, pdb_resname)
+
+
+_MODIFIED_AA_CACHE = None
+
+
+def modified_residues():
+    """Residue names PDBFixer can convert to standard amino acids (MSE->MET, ...).
+
+    These are kept WITH the protein so PDBFixer's replaceNonstandardResidues can
+    convert them -- they must not be split off as GAFF ligands. Sourced from
+    PDBFixer's own substitution table (authoritative), with a common-case
+    fallback if it can't be imported.
+    """
+    global _MODIFIED_AA_CACHE
+    if _MODIFIED_AA_CACHE is None:
+        try:
+            from pdbfixer.pdbfixer import substitutions
+            _MODIFIED_AA_CACHE = set(substitutions.keys())
+        except Exception:  # noqa: BLE001 - fall back to common modified residues
+            _MODIFIED_AA_CACHE = {
+                "MSE", "SEP", "TPO", "PTR", "CSO", "CME", "MLY", "KCX", "PCA",
+                "HYP", "FME", "CSD", "OCS", "M3L", "CAS", "CSS",
+            }
+    return _MODIFIED_AA_CACHE
 
 
 def _require():
@@ -85,13 +124,16 @@ def classify_residues(pdb_path, strip_agents=True, ligand_resnames=None):
     - Everything else (or ``ligand_resnames`` if given) -> ligand (GAFF).
     """
     want = set(ligand_resnames) if ligand_resnames else None
+    modified = modified_residues()
     out = {"protein": [], "ligand": {}, "water": [], "ion": {}, "stripped": {}}
     for line in open(pdb_path):
         rec = line[:6].strip()
         if rec not in ("ATOM", "HETATM"):
             continue
         name = _resname(line)
-        if name in STANDARD_RESIDUES:
+        # Standard + modified amino acids stay with the protein (PDBFixer converts
+        # modified ones, e.g. MSE->MET); never split them off as GAFF ligands.
+        if name in STANDARD_RESIDUES or name in modified:
             out["protein"].append(line)
         elif name in WATER:
             out["water"].append(line)

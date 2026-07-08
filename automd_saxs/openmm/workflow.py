@@ -182,6 +182,8 @@ class Workflow:
         manifest.set_parameter("prepAudit", audit)
         if audit.get("ligands"):
             manifest.set_parameter("ligands", audit["ligands"])
+        for warning in audit.get("ligandWarnings", []):
+            manifest.add_note(warning)
         padding = prepare.resolve_box_padding(cfg, cfg.pdb)
         manifest.set_parameter("boxPaddingNm", padding)
         self._write_progress(paths, cfg, "solvate")
