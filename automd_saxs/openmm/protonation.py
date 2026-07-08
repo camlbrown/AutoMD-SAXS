@@ -113,43 +113,65 @@ def protonation_variant(resname, pka, ph):
     return var if var in SUPPORTED_VARIANTS else None
 
 
+# Selectable protonation variants per residue type for the review-UI dropdowns
+# ("default" = let OpenMM choose from pH / H-bond environment).
+VARIANT_CHOICES = {
+    "ASP": ["default", "ASH"],       # deprotonated (default) / protonated
+    "GLU": ["default", "GLH"],
+    "HIS": ["default", "HID", "HIE", "HIP"],
+    "LYS": ["default", "LYN"],       # protonated (default) / neutral
+}
+
+
 def build_variants(topology, pkas, ph, overrides=None):
-    """Return ``(variants, audit)`` for ``Modeller.addHydrogens(variants=...)``.
+    """Return ``(variants, audit, table)`` for ``Modeller.addHydrogens``.
 
     ``variants`` is a list of length ``n_residues`` (``None`` = OpenMM default,
     else a variant name). ``overrides`` (from the review UI) is keyed
     ``"chain:resSeq:resname"`` -> amber14 variant (or ``"default"``) and takes
-    precedence over the propka-predicted state. ``audit`` records each residue
-    whose state differs from the default, for the manifest / UI. Chain ids on
-    ``topology`` must match the propka run (call :func:`relabel_chains` first).
+    precedence over the propka-predicted state. ``audit`` records the residues
+    whose state differs from the default; ``table`` records EVERY ionizable
+    residue (chain/resSeq/residue/pKa/state/source/choices) for the review-page
+    editor. Chain ids on ``topology`` must match the propka run (call
+    :func:`relabel_chains` first).
     """
     overrides = overrides or {}
     variants = [None] * topology.getNumResidues()
     audit = []
+    table = []
     for i, res in enumerate(topology.residues()):
         if res.name not in TITRATABLE:
             continue
         okey = "{0}:{1}:{2}".format(res.chain.id, res.id, res.name)
         pka = pkas.get((res.chain.id, res.id, res.name))
+        source = "propka"
+        state = "default"
         if okey in overrides:
-            # User override wins; "default"/None reverts to OpenMM's pH choice.
             raw = overrides[okey]
             var = None if raw in (None, "default", "") else raw
             if var is None or var in SUPPORTED_VARIANTS:
                 variants[i] = var
+                source = "override"
+                state = var or "default"
                 audit.append({
                     "chain": res.chain.id, "resSeq": res.id, "residue": res.name,
                     "pKa": round(pka, 2) if pka is not None else None,
                     "variant": var or "default", "source": "override",
                 })
-            continue
-        if pka is None:
-            continue
-        var = protonation_variant(res.name, pka, ph)
-        if var:
-            variants[i] = var
-            audit.append({
-                "chain": res.chain.id, "resSeq": res.id, "residue": res.name,
-                "pKa": round(pka, 2), "variant": var, "source": "propka",
-            })
-    return variants, audit
+        elif pka is not None:
+            var = protonation_variant(res.name, pka, ph)
+            if var:
+                variants[i] = var
+                state = var
+                audit.append({
+                    "chain": res.chain.id, "resSeq": res.id, "residue": res.name,
+                    "pKa": round(pka, 2), "variant": var, "source": "propka",
+                })
+        table.append({
+            "key": okey,
+            "chain": res.chain.id, "resSeq": res.id, "residue": res.name,
+            "pKa": round(pka, 2) if pka is not None else None,
+            "state": state, "source": source,
+            "choices": VARIANT_CHOICES.get(res.name, ["default"]),
+        })
+    return variants, audit, table

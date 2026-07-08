@@ -99,8 +99,9 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         pkas = protonation.run_propka(heavy_pdb, work_dir)
 
     overrides = getattr(config, "protonation_overrides", None)
+    proton_table = []
     if pkas or overrides:
-        variants, proton_changes = protonation.build_variants(
+        variants, proton_changes, proton_table = protonation.build_variants(
             modeller.topology, pkas, config.ph, overrides=overrides)
         modeller.addHydrogens(forcefield, pH=config.ph, variants=variants)
         proton_method = "propka+override" if overrides else "propka"
@@ -165,6 +166,7 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         "pH": config.ph,
         "protonationMethod": proton_method,
         "protonationChanges": proton_changes,
+        "protonationTable": proton_table,
         "ligands": ligands_audit,
         "ligandWarnings": ligand_warnings,
         "strippedResidues": classes["stripped"],
