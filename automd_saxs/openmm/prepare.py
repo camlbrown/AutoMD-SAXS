@@ -98,11 +98,12 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
             app.PDBFile.writeFile(fixer.topology, fixer.positions, handle, keepIds=True)
         pkas = protonation.run_propka(heavy_pdb, work_dir)
 
-    if pkas:
+    overrides = getattr(config, "protonation_overrides", None)
+    if pkas or overrides:
         variants, proton_changes = protonation.build_variants(
-            modeller.topology, pkas, config.ph)
+            modeller.topology, pkas, config.ph, overrides=overrides)
         modeller.addHydrogens(forcefield, pH=config.ph, variants=variants)
-        proton_method = "propka"
+        proton_method = "propka+override" if overrides else "propka"
     else:
         modeller.addHydrogens(forcefield, pH=config.ph)
 

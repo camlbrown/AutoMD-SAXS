@@ -54,6 +54,19 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_prepare(args) -> int:
+    """Run only structure preparation (the review-UI 'prep preview')."""
+    config = load_config(args.config)
+    wf = workflow_mod.Workflow(config, work_dir=args.work_dir, out_dir=args.out)
+    try:
+        result = wf.prepare_only()
+    except MissingDependencyError as exc:
+        print("error: {0}".format(exc), file=sys.stderr)
+        return 1
+    print("{0}: {1}".format(result["status"], result["prepared"]))
+    return 0
+
+
 def cmd_validate(args) -> int:
     try:
         load_config(args.config)
@@ -82,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-run", action="store_true", default=False,
                      help="record stages/commands without executing OpenMM/FoXS")
     run.set_defaults(func=cmd_run)
+
+    prep = sub.add_parser("prepare", help="Run only structure preparation (prep preview).")
+    prep.add_argument("--config", required=True, help="job .json or .yaml")
+    prep.add_argument("--out", help="output directory; prepared.pdb + prep_audit.json land here")
+    prep.add_argument("--work-dir", help="alt to --out: output -> <work-dir>/<job_name>")
+    prep.set_defaults(func=cmd_prepare)
 
     val = sub.add_parser("validate", help="Validate a job config and exit.")
     val.add_argument("--config", required=True, help="job .json or .yaml")

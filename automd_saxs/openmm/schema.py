@@ -73,7 +73,7 @@ _FIELDS = (
     "friction_per_ps", "report_interval_steps", "frame_stride",
     "frame_interval_ns", "seed", "platform", "hmr", "use_propka",
     "ligand_resnames", "ligand_smiles", "keep_crystallisation_agents",
-    "keep_ions", "extra",
+    "keep_ions", "protonation_overrides", "extra",
 )
 
 
@@ -136,6 +136,10 @@ class OpenMMConfig:
         # Keep bound/structural ions (Ca2+, Zn2+, Pb2+, Fe, Mg, ...) in the
         # simulation, parameterised by amber14 (default True). Set False to strip.
         keep_ions=True,
+        # Manual protonation overrides from the review UI, keyed "chain:resSeq:resname"
+        # -> amber14 variant (ASH/GLH/HID/HIE/HIP/LYN) or "default". Takes
+        # precedence over the propka-predicted state for that residue.
+        protonation_overrides=None,
         extra=None,
     ):
         self.pdb = pdb
@@ -170,6 +174,7 @@ class OpenMMConfig:
         self.ligand_smiles = dict(ligand_smiles) if ligand_smiles else None
         self.keep_crystallisation_agents = bool(keep_crystallisation_agents)
         self.keep_ions = bool(keep_ions)
+        self.protonation_overrides = dict(protonation_overrides) if protonation_overrides else None
         # Runtime-only paths (set by the workflow after prepare; not serialised):
         # the ligand SDF (perceived bonds/charges) and the GAFF AM1-BCC charge
         # cache, so createSystem/addSolvent can parameterise ligands.

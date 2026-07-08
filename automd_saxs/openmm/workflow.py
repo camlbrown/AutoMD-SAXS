@@ -126,8 +126,7 @@ class Workflow:
                         cfg.saxs, os.path.join(paths.frames_dir, "structure_<i>.pdb")))
                 elif name == "multifoxs":
                     manifest.add_step("multifoxs", command=foxs.multifoxs_command(
-                        cfg.saxs, [os.path.join(paths.frames_dir, "structure_<i>.pdb.dat")],
-                        output=os.path.join(paths.ensemble_dir, "ensemble.dat")))
+                        cfg.saxs, [os.path.join(paths.frames_dir, "structure_<i>.pdb")]))
                 else:
                     manifest.add_step(name)
             manifest.write(paths.manifest_path)
@@ -166,6 +165,32 @@ class Workflow:
                 json.dump(data, handle)
         except Exception:  # noqa: BLE001 - progress reporting must never fail a run
             pass
+
+    def prepare_only(self):
+        """Run ONLY structure preparation (strip per toggles, propka protonation,
+        ligand parameterisation, keep ions) and write the prepared structure +
+        an ``prep_audit.json`` -- the "prep preview" the review UI shows before
+        committing to the full MD run. No MD is run.
+        """
+        from . import prepare
+        import json
+
+        cfg = self.config
+        paths = self._paths()
+        paths.create()
+        cfg.ligand_sdf = paths.ligand_sdf
+        cfg.gaff_cache = paths.gaff_cache
+        audit = prepare.prepare_structure(cfg, cfg.pdb, paths.prepared_pdb)
+        try:
+            audit["boxPaddingNm"] = prepare.resolve_box_padding(cfg, cfg.pdb)
+        except Exception:  # noqa: BLE001 - advisory
+            pass
+        audit["preparedPdb"] = paths.prepared_pdb
+        audit["status"] = "prepared"
+        with open(os.path.join(paths.job_dir, "prep_audit.json"), "w") as handle:
+            json.dump(audit, handle, indent=2)
+        return {"status": "prepared", "job_dir": paths.job_dir,
+                "prepared": paths.prepared_pdb, "audit": audit}
 
     def _execute(self, cfg, paths, manifest, runner):
         from . import prepare, md, frames, foxs
