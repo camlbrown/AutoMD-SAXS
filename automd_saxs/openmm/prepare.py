@@ -11,8 +11,11 @@ changed (missing residues/atoms/terminals) in the manifest rather than silently
 renaming atoms.
 """
 
+import os
+
 from ..command_runner import MissingDependencyError
 from ..dmax import box_padding_nm, model_dmax_nm, resolve_dmax_nm
+from . import protonation
 from .schema import OpenMMConfig
 
 
@@ -44,9 +47,17 @@ def resolve_box_padding(config: OpenMMConfig, pdb_path: str):
 def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     """Clean the input PDB and add hydrogens at the requested pH.
 
-    Returns a small audit dict describing what PDBFixer changed.
+    Protonation is structure-based: `propka3` predicts per-residue pKa values and
+    the requested pH decides each ionizable group's state (see
+    :mod:`automd_saxs.openmm.protonation`), applied via ``addHydrogens`` variants.
+    Falls back to plain ``addHydrogens(pH=...)`` if propka is unavailable/fails.
+
+    Returns an audit dict describing what PDBFixer changed and the protonation
+    decisions (method + per-residue overrides), for the manifest / UI. Protonation
+    is a best-effort prediction and should be checked visually.
     """
     openmm, app, unit, pdbfixer = _require_openmm()
+    work_dir = os.path.dirname(os.path.abspath(out_pdb))
 
     fixer = pdbfixer.PDBFixer(filename=pdb_path)
     fixer.findMissingResidues()
@@ -56,9 +67,29 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     fixer.addMissingAtoms()
     fixer.findMissingAtoms()
 
+    # Consistent chain ids so propka residue identifiers line up with the topology.
+    protonation.relabel_chains(fixer.topology)
+
     forcefield = app.ForceField(*config.forcefield_files())
     modeller = app.Modeller(fixer.topology, fixer.positions)
-    modeller.addHydrogens(forcefield, pH=config.ph)
+
+    # Structure-based pH protonation (propka) with graceful fallback.
+    proton_method = "openmm-default"
+    proton_changes = []
+    pkas = {}
+    if getattr(config, "use_propka", True):
+        heavy_pdb = os.path.join(work_dir, "prepared_heavy.pdb")
+        with open(heavy_pdb, "w") as handle:
+            app.PDBFile.writeFile(fixer.topology, fixer.positions, handle, keepIds=True)
+        pkas = protonation.run_propka(heavy_pdb, work_dir)
+
+    if pkas:
+        variants, proton_changes = protonation.build_variants(
+            modeller.topology, pkas, config.ph)
+        modeller.addHydrogens(forcefield, pH=config.ph, variants=variants)
+        proton_method = "propka"
+    else:
+        modeller.addHydrogens(forcefield, pH=config.ph)
 
     with open(out_pdb, "w") as handle:
         app.PDBFile.writeFile(modeller.topology, modeller.positions, handle)
@@ -67,6 +98,8 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         "missingResidues": {str(k): v for k, v in missing_residues.items()},
         "missingAtoms": missing_atoms,
         "pH": config.ph,
+        "protonationMethod": proton_method,
+        "protonationChanges": proton_changes,
         "output": out_pdb,
     }
 

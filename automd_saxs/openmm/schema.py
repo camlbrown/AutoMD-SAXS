@@ -71,7 +71,7 @@ _FIELDS = (
     "ionic_concentration_M", "ph", "disulfide", "box_padding_nm",
     "equilibration_ns", "minimize_max_iterations", "nonbonded_cutoff_nm",
     "friction_per_ps", "report_interval_steps", "frame_stride",
-    "frame_interval_ns", "seed", "platform", "hmr", "extra",
+    "frame_interval_ns", "seed", "platform", "hmr", "use_propka", "extra",
 )
 
 
@@ -124,6 +124,7 @@ class OpenMMConfig:
         seed=None,
         platform=None,               # None/"auto" -> fastest available
         hmr=False,                   # Hydrogen Mass Repartitioning (4 fs, ~2x)
+        use_propka=True,             # structure-based pH protonation (propka)
         extra=None,
     ):
         self.pdb = pdb
@@ -153,6 +154,7 @@ class OpenMMConfig:
         self.frame_interval_ns = frame_interval_ns
         self.seed = seed
         self.platform = platform
+        self.use_propka = bool(use_propka)
         self.extra = {} if extra is None else dict(extra)
         self.validate()
 
