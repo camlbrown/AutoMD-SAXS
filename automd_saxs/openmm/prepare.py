@@ -15,7 +15,7 @@ import os
 
 from ..command_runner import MissingDependencyError
 from ..dmax import box_padding_nm, model_dmax_nm, resolve_dmax_nm
-from . import protonation
+from . import ligand, protonation
 from .schema import OpenMMConfig
 
 
@@ -59,7 +59,17 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     openmm, app, unit, pdbfixer = _require_openmm()
     work_dir = os.path.dirname(os.path.abspath(out_pdb))
 
-    fixer = pdbfixer.PDBFixer(filename=pdb_path)
+    # Split the input into protein / ligand(s) / water / ions. Water and (for now)
+    # ions and crystallisation agents are set aside; the protein is prepped +
+    # protonated (propka) and each ligand is parameterised with GAFF.
+    classes = ligand.classify_residues(
+        pdb_path,
+        strip_agents=not getattr(config, "keep_crystallisation_agents", False),
+        ligand_resnames=getattr(config, "ligand_resnames", None))
+    protein_pdb = ligand.write_lines(
+        classes["protein"], os.path.join(work_dir, "protein_only.pdb"))
+
+    fixer = pdbfixer.PDBFixer(filename=protein_pdb)
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
     missing_residues = dict(fixer.missingResidues)
@@ -91,6 +101,31 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     else:
         modeller.addHydrogens(forcefield, pH=config.ph)
 
+    # Ligand parameterisation: build an OpenFF molecule per ligand residue
+    # (RDKit bond perception on the protonated ligand, or a SMILES hint), persist
+    # to ligand.sdf for downstream GAFF, and merge the ligand atoms (with their
+    # own hydrogens) into the prepared complex.
+    ligands_audit = []
+    lig_mols = []
+    smiles_hints = getattr(config, "ligand_smiles", None) or {}
+    for resname, lines in classes["ligand"].items():
+        lig_pdb = ligand.write_lines(
+            lines, os.path.join(work_dir, "ligand_{0}.pdb".format(resname)))
+        mol = ligand.build_ligand_molecule(
+            lig_pdb, resname=resname, smiles=smiles_hints.get(resname))
+        lig_mols.append(mol)
+        modeller.add(mol.to_topology().to_openmm(), mol.conformers[0].to_openmm())
+        ligands_audit.append({
+            "resname": resname,
+            "nAtoms": mol.n_atoms,
+            "formalCharge": float(mol.total_charge.magnitude)
+            if hasattr(mol.total_charge, "magnitude") else float(mol.total_charge / mol.total_charge.unit),
+            "smiles": mol.to_smiles(explicit_hydrogens=False),
+            "source": "smiles" if resname in smiles_hints else "perceived",
+        })
+    if lig_mols and getattr(config, "ligand_sdf", None):
+        ligand.write_ligand_sdf(lig_mols, config.ligand_sdf)
+
     with open(out_pdb, "w") as handle:
         app.PDBFile.writeFile(modeller.topology, modeller.positions, handle)
 
@@ -100,6 +135,9 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         "pH": config.ph,
         "protonationMethod": proton_method,
         "protonationChanges": proton_changes,
+        "ligands": ligands_audit,
+        "strippedResidues": classes["stripped"],
+        "ionsSetAside": {k: len(v) for k, v in classes["ion"].items()},
         "output": out_pdb,
     }
 
@@ -109,7 +147,7 @@ def solvate(config: OpenMMConfig, prepared_pdb: str, out_pdb: str, padding_nm: f
     openmm, app, unit, pdbfixer = _require_openmm()
 
     pdb = app.PDBFile(prepared_pdb)
-    forcefield = app.ForceField(*config.forcefield_files())
+    forcefield = ligand.build_forcefield(config, app)
     modeller = app.Modeller(pdb.topology, pdb.positions)
     modeller.addSolvent(
         forcefield,

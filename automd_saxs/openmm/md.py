@@ -14,6 +14,7 @@ import os
 import subprocess
 
 from ..command_runner import MissingDependencyError
+from . import ligand
 from .schema import OpenMMConfig
 
 # Fail-fast gate for a failed minimisation. For an EXPLICIT-solvent system the
@@ -108,9 +109,10 @@ def build_system(config: OpenMMConfig, app, unit, topology):
 
     When ``config.hmr`` is set, Hydrogen Mass Repartitioning transfers mass onto
     hydrogens (``hydrogenMass=1.5 amu``) so the integration timestep can be ~2x
-    larger (4 fs) for ~2x throughput at negligible accuracy cost.
+    larger (4 fs) for ~2x throughput at negligible accuracy cost. When a ligand
+    SDF is set on the config, GAFF ligand templates are registered too.
     """
-    forcefield = app.ForceField(*config.forcefield_files())
+    forcefield = ligand.build_forcefield(config, app)
     kwargs = dict(
         nonbondedMethod=app.PME,
         nonbondedCutoff=config.nonbonded_cutoff_nm * unit.nanometer,

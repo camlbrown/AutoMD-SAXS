@@ -71,7 +71,8 @@ _FIELDS = (
     "ionic_concentration_M", "ph", "disulfide", "box_padding_nm",
     "equilibration_ns", "minimize_max_iterations", "nonbonded_cutoff_nm",
     "friction_per_ps", "report_interval_steps", "frame_stride",
-    "frame_interval_ns", "seed", "platform", "hmr", "use_propka", "extra",
+    "frame_interval_ns", "seed", "platform", "hmr", "use_propka",
+    "ligand_resnames", "ligand_smiles", "keep_crystallisation_agents", "extra",
 )
 
 
@@ -125,6 +126,12 @@ class OpenMMConfig:
         platform=None,               # None/"auto" -> fastest available
         hmr=False,                   # Hydrogen Mass Repartitioning (4 fs, ~2x)
         use_propka=True,             # structure-based pH protonation (propka)
+        # Protein-ligand: explicit ligand residue names (None -> auto-detect any
+        # non-standard, non-water, non-ion, non-crystallisation-agent HETATM);
+        # optional SMILES hints {resname: smiles} for robust bond perception.
+        ligand_resnames=None,
+        ligand_smiles=None,
+        keep_crystallisation_agents=False,
         extra=None,
     ):
         self.pdb = pdb
@@ -155,6 +162,14 @@ class OpenMMConfig:
         self.seed = seed
         self.platform = platform
         self.use_propka = bool(use_propka)
+        self.ligand_resnames = list(ligand_resnames) if ligand_resnames else None
+        self.ligand_smiles = dict(ligand_smiles) if ligand_smiles else None
+        self.keep_crystallisation_agents = bool(keep_crystallisation_agents)
+        # Runtime-only paths (set by the workflow after prepare; not serialised):
+        # the ligand SDF (perceived bonds/charges) and the GAFF AM1-BCC charge
+        # cache, so createSystem/addSolvent can parameterise ligands.
+        self.ligand_sdf = None
+        self.gaff_cache = None
         self.extra = {} if extra is None else dict(extra)
         self.validate()
 

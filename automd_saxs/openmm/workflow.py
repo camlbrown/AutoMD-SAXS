@@ -171,11 +171,17 @@ class Workflow:
         from . import prepare, md, frames, foxs
         from .. import structural
 
-        # 1. structure preparation + solvation
+        # 1. structure preparation + solvation. Point the config at the runtime
+        # ligand SDF / GAFF cache so prepare can write ligand parameters and every
+        # downstream createSystem/addSolvent picks up the GAFF ligand templates.
+        cfg.ligand_sdf = paths.ligand_sdf
+        cfg.gaff_cache = paths.gaff_cache
         self._write_progress(paths, cfg, "prepare_structure")
         audit = prepare.prepare_structure(cfg, cfg.pdb, paths.prepared_pdb)
         manifest.add_step("prepare_structure", status=STATUS_COMPLETED)
         manifest.set_parameter("prepAudit", audit)
+        if audit.get("ligands"):
+            manifest.set_parameter("ligands", audit["ligands"])
         padding = prepare.resolve_box_padding(cfg, cfg.pdb)
         manifest.set_parameter("boxPaddingNm", padding)
         self._write_progress(paths, cfg, "solvate")

@@ -16,9 +16,14 @@ import os
 
 from ..command_runner import MissingDependencyError
 
-# mdtraj selection for the macromolecule (drops water, ions). Falls back to all
+# mdtraj selection for the solute (protein + any bound ligand), dropping water
+# and the solvent counterions added at solvation, so ligands are kept in the
+# frames / SAXS / clustering while the water box is removed. Falls back to all
 # atoms if a topology has no matching atoms (e.g. unusual residue naming).
-DEFAULT_SELECTION = "protein"
+# (mdtraj selection tokens must be alphanumeric — OpenMM/CHARMM add solvent ions
+# as NA/CL/K/SOD/CLA/POT, no +/- in the residue names.)
+DEFAULT_SELECTION = (
+    "not water and not resname NA CL K SOD CLA POT")
 
 
 def _require_mdtraj():

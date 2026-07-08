@@ -90,6 +90,16 @@ class OpenMMPaths:
         return os.path.join(self.job_dir, "production", "solute_top.pdb")
 
     @property
+    def ligand_sdf(self):
+        # Perceived ligand molecule(s) (bonds/charges) for GAFF parameterisation.
+        return os.path.join(self.job_dir, "ligand.sdf")
+
+    @property
+    def gaff_cache(self):
+        # AM1-BCC charge cache so ligand charges are computed only once.
+        return os.path.join(self.job_dir, "gaff_cache.json")
+
+    @property
     def config_path(self):
         return os.path.join(self.job_dir, "job.json")
 
