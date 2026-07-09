@@ -88,6 +88,17 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     forcefield = app.ForceField(*config.forcefield_files())
     modeller = app.Modeller(fixer.topology, fixer.positions)
 
+    # Strip any pre-existing hydrogens before re-protonating. Some inputs arrive
+    # already protonated with non-standard H names (e.g. old-style 2HB/1HD1),
+    # which makes Modeller.addHydrogens fail with "No template ... missing 1 H
+    # atom". Deleting existing H lets addHydrogens re-add them cleanly at the
+    # requested pH with force-field-correct names.
+    existing_h = [a for a in modeller.topology.atoms()
+                  if a.element is not None and a.element.symbol == "H"]
+    stripped_h = len(existing_h)
+    if existing_h:
+        modeller.delete(existing_h)
+
     # Structure-based pH protonation (propka) with graceful fallback.
     proton_method = "openmm-default"
     proton_changes = []
@@ -95,7 +106,8 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     if getattr(config, "use_propka", True):
         heavy_pdb = os.path.join(work_dir, "prepared_heavy.pdb")
         with open(heavy_pdb, "w") as handle:
-            app.PDBFile.writeFile(fixer.topology, fixer.positions, handle, keepIds=True)
+            app.PDBFile.writeFile(
+                modeller.topology, modeller.positions, handle, keepIds=True)
         pkas = protonation.run_propka(heavy_pdb, work_dir)
 
     overrides = getattr(config, "protonation_overrides", None)
@@ -165,6 +177,7 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         "missingAtoms": missing_atoms,
         "pH": config.ph,
         "protonationMethod": proton_method,
+        "strippedHydrogens": stripped_h,
         "protonationChanges": proton_changes,
         "protonationTable": proton_table,
         "ligands": ligands_audit,
@@ -221,5 +234,10 @@ def solvate(config: OpenMMConfig, prepared_pdb: str, out_pdb: str, padding_nm: f
         neutralize=True,
     )
     with open(out_pdb, "w") as handle:
-        app.PDBFile.writeFile(modeller.topology, modeller.positions, handle)
+        if out_pdb.endswith(".cif"):
+            # mmCIF: solvated boxes exceed the PDB 99999-atom serial limit.
+            app.PDBxFile.writeFile(
+                modeller.topology, modeller.positions, handle, keepIds=True)
+        else:
+            app.PDBFile.writeFile(modeller.topology, modeller.positions, handle)
     return out_pdb

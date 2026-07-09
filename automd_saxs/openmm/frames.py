@@ -44,6 +44,19 @@ def _solute(traj, selection):
     return traj.atom_slice(idx)
 
 
+def _save_pdb(traj, path):
+    """Write a PDB, working around an mdtraj writer bug.
+
+    mdtraj's PDB writer does ``atom.serial % 100000``; when the topology came from
+    mmCIF (used for large systems, see paths.py) the serial is a *string*, which
+    raises ``TypeError`` for single-chain topologies. Clearing serials makes the
+    writer fall back to the atom index.
+    """
+    for atom in traj.topology.atoms:
+        atom.serial = None
+    traj.save_pdb(path)
+
+
 def solute_indices(topology_pdb, selection=DEFAULT_SELECTION):
     """Atom indices of the solute (protein) selection in ``topology_pdb``.
 
@@ -61,7 +74,7 @@ def write_solute_topology(topology_pdb, out_pdb, selection=DEFAULT_SELECTION):
     """Write a single-frame solute-only topology PDB (to read protein-only DCDs)."""
     mdtraj = _require_mdtraj()
     t = mdtraj.load(topology_pdb)
-    _solute(t, selection)[0].save_pdb(out_pdb)
+    _save_pdb(_solute(t, selection)[0], out_pdb)
     return out_pdb
 
 
@@ -127,7 +140,7 @@ def extract_frames(trajectory, topology, out_dir, stride=2, selection=DEFAULT_SE
     written = []
     for i in range(traj.n_frames):
         path = os.path.join(out_dir, "structure_{0}.pdb".format(i))
-        traj[i].save_pdb(path)
+        _save_pdb(traj[i], path)
         written.append(path)
     return written
 
@@ -224,5 +237,5 @@ def combine_trajectories(trajectories, topology, out_path, stride=1,
     combined.save_dcd(out_path)
     # Solute-only topology for downstream loaders (clustering).
     top_pdb = os.path.splitext(out_path)[0] + ".pdb"
-    combined[0].save_pdb(top_pdb)
+    _save_pdb(combined[0], top_pdb)
     return out_path

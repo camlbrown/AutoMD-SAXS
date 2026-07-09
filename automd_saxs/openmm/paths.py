@@ -33,13 +33,17 @@ class OpenMMPaths:
     def prepared_pdb(self):
         return os.path.join(self.job_dir, "prepared.pdb")
 
+    # Solvated/minimised structures are mmCIF, not PDB: explicit-solvent boxes
+    # routinely exceed the PDB 99999-atom serial limit, which overflows atom
+    # serials and corrupts CONECT-based bonds (disulfides/ligands) on reload.
+    # mmCIF has no such limit. (Property names kept for call-site stability.)
     @property
     def solvated_pdb(self):
-        return os.path.join(self.job_dir, "solvated.pdb")
+        return os.path.join(self.job_dir, "solvated.cif")
 
     @property
     def minimized_pdb(self):
-        return os.path.join(self.job_dir, "minimized.pdb")
+        return os.path.join(self.job_dir, "minimized.cif")
 
     @property
     def equilibrated_state(self):

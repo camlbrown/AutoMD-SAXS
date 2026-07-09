@@ -37,6 +37,31 @@ def _require_openmm():
     return openmm, app, unit
 
 
+def _load_structure(config, app, path):
+    """Load a solvated/minimised structure for createSystem.
+
+    mmCIF (``.cif``) is used for large systems because the PDB 99999-atom serial
+    limit overflows and corrupts CONECT-based bonds (disulfides/ligands) on
+    reload. mmCIF carries no ligand connectivity, so ligand bonds are re-added
+    from the perceived ligand SDF; disulfides are re-derived geometrically by the
+    reader. Falls back to PDB for legacy ``.pdb`` paths.
+    """
+    if path.endswith(".cif"):
+        struct = app.PDBxFile(path)
+        ligand.reapply_ligand_bonds(struct.topology, config)
+        return struct
+    return app.PDBFile(path)
+
+
+def _write_structure(app, topology, positions, path):
+    """Write mmCIF for ``.cif`` paths (large systems), else PDB."""
+    with open(path, "w") as handle:
+        if path.endswith(".cif"):
+            app.PDBxFile.writeFile(topology, positions, handle, keepIds=True)
+        else:
+            app.PDBFile.writeFile(topology, positions, handle)
+
+
 def gpu_count() -> int:
     """Number of GPUs visible to this process (for parallelising repeats).
 
@@ -137,7 +162,7 @@ def _integrator(openmm, unit, config):
 def minimize(config: OpenMMConfig, solvated_pdb: str, out_pdb: str):
     """Energy-minimise; raise if the post-minimisation energy is unphysical."""
     openmm, app, unit = _require_openmm()
-    pdb = app.PDBFile(solvated_pdb)
+    pdb = _load_structure(config, app, solvated_pdb)
     system = build_system(config, app, unit, pdb.topology)
     simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system)
     simulation.context.setPositions(pdb.positions)
@@ -148,15 +173,14 @@ def minimize(config: OpenMMConfig, solvated_pdb: str, out_pdb: str):
     # NaN/inf or a large POSITIVE energy (unrelieved clashes) indicates failure.
     if math.isnan(energy) or math.isinf(energy) or energy > MAX_POSITIVE_ENERGY_KJ:
         raise RuntimeError("minimisation produced unphysical energy: {0} kJ/mol".format(energy))
-    with open(out_pdb, "w") as handle:
-        app.PDBFile.writeFile(pdb.topology, state.getPositions(), handle)
+    _write_structure(app, pdb.topology, state.getPositions(), out_pdb)
     return {"potentialEnergyKJ": energy, "output": out_pdb}
 
 
 def equilibrate(config: OpenMMConfig, minimized_pdb: str, out_state: str):
     """NVT then NPT equilibration; writes a restart state (positions+velocities)."""
     openmm, app, unit = _require_openmm()
-    pdb = app.PDBFile(minimized_pdb)
+    pdb = _load_structure(config, app, minimized_pdb)
     system = build_system(config, app, unit, pdb.topology)
     system.addForce(openmm.MonteCarloBarostat(1.0 * unit.bar, config.temperature_K * unit.kelvin))
     simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system)
@@ -196,7 +220,7 @@ def production(config: OpenMMConfig, equilibrated_state: str, minimized_pdb: str
     topology (see workflow).
     """
     openmm, app, unit = _require_openmm()
-    pdb = app.PDBFile(minimized_pdb)
+    pdb = _load_structure(config, app, minimized_pdb)
     system = build_system(config, app, unit, pdb.topology)
     system.addForce(openmm.MonteCarloBarostat(1.0 * unit.bar, config.temperature_K * unit.kelvin))
     simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system,

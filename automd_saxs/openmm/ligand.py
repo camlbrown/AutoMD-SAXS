@@ -255,6 +255,60 @@ def write_ligand_sdf(molecules, sdf_path):
     return sdf_path
 
 
+def reapply_ligand_bonds(topology, config):
+    """Re-add intra-ligand bonds to an OpenMM topology after an mmCIF round-trip.
+
+    Large solvated/minimised systems are stored as mmCIF to dodge the PDB
+    99999-atom serial-overflow (which corrupts CONECT-based bonds). mmCIF does not
+    carry ligand connectivity, and ``createStandardBonds`` only knows standard
+    residues, so without this the GAFF template match fails. Bonds are read from
+    the perceived ligand SDF and matched to topology ligand residues by atom count.
+    Returns the number of bonds added.
+    """
+    sdf = getattr(config, "ligand_sdf", None)
+    if not sdf or not os.path.exists(sdf):
+        return 0
+    try:
+        from rdkit import Chem
+    except ImportError:
+        return 0
+    mols = [m for m in Chem.SDMolSupplier(sdf, removeHs=False, sanitize=False)
+            if m is not None]
+    if not mols:
+        return 0
+    modified = modified_residues()
+    lig_residues = []
+    for res in topology.residues():
+        name = res.name.strip().upper()
+        atoms = list(res.atoms())
+        if len(atoms) <= 1:  # monatomic ion
+            continue
+        if name in STANDARD_RESIDUES or name in WATER or name in modified:
+            continue
+        lig_residues.append((res, atoms))
+    if not lig_residues:
+        return 0
+    existing = set()
+    for a1, a2 in topology.bonds():
+        existing.add(frozenset((a1.index, a2.index)))
+    added = 0
+    used = [False] * len(mols)
+    for _res, atoms in lig_residues:
+        for k, mol in enumerate(mols):
+            if used[k] or mol.GetNumAtoms() != len(atoms):
+                continue
+            for bond in mol.GetBonds():
+                i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+                key = frozenset((atoms[i].index, atoms[j].index))
+                if key not in existing:
+                    topology.addBond(atoms[i], atoms[j])
+                    existing.add(key)
+                    added += 1
+            used[k] = True
+            break
+    return added
+
+
 def make_gaff_generator(molecules, cache=None, forcefield="gaff-2.11"):
     """A GAFF template generator for the given ligand molecules (cached charges)."""
     _, GAFFTemplateGenerator, _, _ = _require()
