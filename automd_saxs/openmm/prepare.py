@@ -66,6 +66,9 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         pdb_path,
         strip_agents=not getattr(config, "keep_crystallisation_agents", False),
         ligand_resnames=getattr(config, "ligand_resnames", None))
+    keep_waters = bool(getattr(config, "keep_waters", False))
+    n_crystal_waters = sum(1 for ln in classes["water"] if ln[12:16].strip() == "O") \
+        or len(classes["water"])
     protein_pdb = ligand.write_lines(
         classes["protein"], os.path.join(work_dir, "protein_only.pdb"))
 
@@ -128,7 +131,6 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     lig_mols = []
     ligand_warnings = []
     smiles_hints = getattr(config, "ligand_smiles", None) or {}
-    explicit = set(getattr(config, "ligand_resnames", None) or []) | set(smiles_hints)
     for resname, lines in classes["ligand"].items():
         lig_pdb = ligand.write_lines(
             lines, os.path.join(work_dir, "ligand_{0}.pdb".format(resname)))
@@ -136,15 +138,18 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
             mol = ligand.build_ligand_molecule(
                 lig_pdb, resname=resname, smiles=smiles_hints.get(resname))
         except Exception as exc:  # noqa: BLE001
-            # A residue the user explicitly asked to keep must not be silently
-            # dropped; otherwise strip the unparameterisable HETATM (e.g. a
-            # crystallisation agent with no hydrogens) and warn, so the job still
-            # runs. The Task 4 UI lets the user force-keep with a SMILES hint.
-            if resname in explicit:
+            # Hard-fail ONLY when the user supplied a SMILES for this ligand (an
+            # explicit parameterisation attempt that failed -- they need to know).
+            # Otherwise strip the unparameterisable HETATM (e.g. a crystal ligand
+            # with no hydrogens) and warn, so prep still completes and the review
+            # page can prompt for a SMILES. This keeps prep robust: uploading a
+            # structure with a bare crystal ligand no longer aborts the whole job.
+            if resname in smiles_hints:
                 raise
             classes["stripped"][resname] = classes["stripped"].get(resname, 0) + len(lines)
             ligand_warnings.append(
-                "stripped ligand candidate {0} (could not parameterise: {1})".format(
+                "Stripped ligand {0}: could not parameterise it ({1}). To keep it, "
+                "provide a SMILES string for {0} and re-prepare.".format(
                     resname, str(exc)[:120]))
             continue
         lig_mols.append(mol)
@@ -168,6 +173,13 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     if getattr(config, "keep_ions", True) and classes["ion"]:
         ions_audit = _merge_ions(modeller, classes["ion"], app, openmm, unit)
 
+    # Keep crystallographic waters when requested: build their hydrogens on a
+    # separate water-only model (so protein chain-terminus detection is never
+    # disturbed) and merge them in. Bulk explicit solvent is still added around
+    # them at the solvation step.
+    if keep_waters and classes["water"]:
+        _merge_waters(modeller, classes["water"], forcefield, app, work_dir)
+
     with open(out_pdb, "w") as handle:
         app.PDBFile.writeFile(modeller.topology, modeller.positions, handle)
 
@@ -183,6 +195,8 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         "ligands": ligands_audit,
         "ligandWarnings": ligand_warnings,
         "strippedResidues": classes["stripped"],
+        "waters": {"crystallographic": n_crystal_waters,
+                   "kept": keep_waters and n_crystal_waters > 0},
         "ions": ions_audit if ions_audit else {},
         "ionsSetAside": ({} if getattr(config, "keep_ions", True)
                          else {k: len(v) for k, v in classes["ion"].items()}),
@@ -217,6 +231,26 @@ def _merge_ions(modeller, ion_classes, app, openmm, unit):
             kept[amber] = kept.get(amber, 0) + 1
     modeller.add(topology, positions * unit.nanometer)
     return kept
+
+
+def _merge_waters(modeller, water_lines, forcefield, app, work_dir):
+    """Merge crystallographic waters into the prepared complex as TIP3P HOH.
+
+    Their oxygens come from the input PDB; hydrogens are built here on a separate
+    water-only Modeller (via the force field's water template) so the protein's
+    chain-terminus detection is never affected. Returns the number of waters kept.
+    """
+    wat_pdb = ligand.write_lines(
+        water_lines, os.path.join(work_dir, "crystal_waters.pdb"))
+    wat = app.PDBFile(wat_pdb)
+    wmod = app.Modeller(wat.topology, wat.positions)
+    existing_h = [a for a in wmod.topology.atoms()
+                  if a.element is not None and a.element.symbol == "H"]
+    if existing_h:
+        wmod.delete(existing_h)
+    wmod.addHydrogens(forcefield)
+    modeller.add(wmod.topology, wmod.positions)
+    return wat.topology.getNumResidues()
 
 
 def solvate(config: OpenMMConfig, prepared_pdb: str, out_pdb: str, padding_nm: float):

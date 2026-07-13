@@ -145,13 +145,57 @@ def extract_frames(trajectory, topology, out_dir, stride=2, selection=DEFAULT_SE
     return written
 
 
-def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELECTION):
+def _ligand_metrics(mdtraj, traj, ligand_resnames):
+    """Per-frame ligand metrics: heavy-atom RMSD (after protein superposition)
+    and the protein-ligand contact count (atoms within 4 A).
+
+    RMSD tracks whether each ligand stays put in its pocket; the contact count is
+    a proxy for how well the binding interface is maintained over the trajectory.
+    Returns ``(ligand_rmsd, ligand_contacts)`` lists (one per frame), or
+    ``(None, None)`` when no ligand is present. Best-effort.
+    """
+    import numpy as np
+    n = traj.n_frames
+    ligset = {r for r in ligand_resnames if r}
+    if not ligset:
+        return None, None
+    # Select ligand heavy atoms by iterating the topology rather than via the
+    # mdtraj selection DSL, which can't parse digit-leading resnames (e.g. 0E8).
+    lig = np.array([
+        a.index for a in traj.topology.atoms
+        if a.residue.name in ligset
+        and (a.element is None or a.element.symbol != "H")
+    ], dtype=int)
+    if len(lig) == 0:
+        return None, None
+    ca = traj.topology.select("name CA")
+    prot = traj.topology.select("protein")
+    # Ligand RMSD is measured after superposing each frame on the protein (Cα),
+    # so it reflects ligand motion relative to the protein, not global drift.
+    if len(ca):
+        traj.superpose(traj, 0, atom_indices=ca)
+    diff = traj.xyz[:, lig, :] - traj.xyz[0, lig, :]
+    lig_rmsd = (np.sqrt((diff ** 2).sum(axis=(1, 2)) / len(lig)) * 10.0).tolist()
+    contacts = None
+    if len(prot):
+        try:
+            nb = mdtraj.compute_neighbors(traj, 0.4, lig, haystack_indices=prot)
+            contacts = [int(len(x)) for x in nb]
+        except Exception:  # noqa: BLE001 - contacts are advisory
+            contacts = [None] * n
+    return lig_rmsd, contacts
+
+
+def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELECTION,
+                          ligand_resnames=None):
     """Per-frame structural metrics for one repeat's trajectory.
 
-    Returns a list of ``{frame, rg, rmsd, sasa}`` (Rg and Cα-RMSD-to-first-frame in
-    Angstrom; total SASA in nm^2) computed on the solute. Mirrors the GROMACS
-    branch's gyrate/rms/sasa analysis but via mdtraj so it runs in the OpenMM
-    pipeline. Best-effort: returns [] if it cannot be computed.
+    Returns a list of ``{frame, rg, rmsd, sasa, hbonds}`` (Rg and Cα-RMSD-to-first
+    -frame in Angstrom; total SASA in nm^2) computed on the solute, plus
+    ``ligandRmsd`` (Angstrom) and ``ligandContacts`` (protein atoms within 4 A of
+    the ligand) when ``ligand_resnames`` are present. Mirrors the GROMACS branch's
+    gyrate/rms/sasa analysis via mdtraj. Best-effort: returns [] if it cannot be
+    computed.
     """
     mdtraj = _require_mdtraj()
     try:
@@ -171,15 +215,29 @@ def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELE
             hbonds = [len(x) for x in hb]
         except Exception:  # noqa: BLE001 - H-bond count is advisory
             hbonds = [None] * traj.n_frames
+        # Ligand-based analysis (protein-ligand systems). Computed last because it
+        # superposes the trajectory in place; advisory, never fatal.
+        lig_rmsd, lig_contacts = None, None
+        if ligand_resnames:
+            try:
+                lig_rmsd, lig_contacts = _ligand_metrics(
+                    mdtraj, traj, ligand_resnames)
+            except Exception:  # noqa: BLE001 - ligand metrics are advisory
+                lig_rmsd, lig_contacts = None, None
         out = []
         for i in range(traj.n_frames):
-            out.append({
+            row = {
                 "frame": i,
                 "rg": float(rg[i]),
                 "rmsd": float(rmsd[i]),
                 "sasa": (float(sasa[i]) if sasa[i] is not None else None),
                 "hbonds": (int(hbonds[i]) if hbonds[i] is not None else None),
-            })
+            }
+            if lig_rmsd is not None:
+                row["ligandRmsd"] = float(lig_rmsd[i])
+                row["ligandContacts"] = (
+                    lig_contacts[i] if lig_contacts is not None else None)
+            out.append(row)
         return out
     except Exception:  # noqa: BLE001 - time-series is advisory; never fail the run
         return []

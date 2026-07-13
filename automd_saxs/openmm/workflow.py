@@ -301,12 +301,15 @@ class Workflow:
             trajectories, prod_topology, paths.combined_trajectory, frame_stride)
         manifest.add_step("extract_frames", status=STATUS_COMPLETED)
 
-        # Per-repeat structural time-series (Rg / Cα-RMSD / SASA over time) for the
-        # Structural Analysis tab. Computed on the solute; advisory (never fatal).
+        # Per-repeat structural time-series (Rg / Cα-RMSD / SASA over time, plus
+        # ligand RMSD / protein-ligand contacts for protein-ligand systems) for
+        # the Structural Analysis tab. Computed on the solute; advisory.
+        ligand_resnames = [l.get("resname") for l in (audit.get("ligands") or [])]
         time_series = []
         for i in range(1, cfg.n_repeats + 1):
             ts = frames.structural_timeseries(
-                paths.repeat_trajectory(i), prod_topology, stride=frame_stride)
+                paths.repeat_trajectory(i), prod_topology, stride=frame_stride,
+                ligand_resnames=ligand_resnames or None)
             # Total Energy comes from the StateDataReporter log (one row per DCD
             # frame); the time-series is strided, so frame k maps to log row
             # k*frame_stride. Attach it as the solvent-free energy trace.

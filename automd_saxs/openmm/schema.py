@@ -73,7 +73,7 @@ _FIELDS = (
     "friction_per_ps", "report_interval_steps", "frame_stride",
     "frame_interval_ns", "seed", "platform", "hmr", "use_propka",
     "ligand_resnames", "ligand_smiles", "keep_crystallisation_agents",
-    "keep_ions", "protonation_overrides", "extra",
+    "keep_ions", "keep_waters", "protonation_overrides", "extra",
 )
 
 
@@ -136,6 +136,10 @@ class OpenMMConfig:
         # Keep bound/structural ions (Ca2+, Zn2+, Pb2+, Fe, Mg, ...) in the
         # simulation, parameterised by amber14 (default True). Set False to strip.
         keep_ions=True,
+        # Keep crystallographic (structural) waters from the input in the system;
+        # bulk explicit solvent is still added around them at solvation (default
+        # False -> crystal waters stripped, all water re-added as bulk solvent).
+        keep_waters=False,
         # Manual protonation overrides from the review UI, keyed "chain:resSeq:resname"
         # -> amber14 variant (ASH/GLH/HID/HIE/HIP/LYN) or "default". Takes
         # precedence over the propka-predicted state for that residue.
@@ -174,6 +178,7 @@ class OpenMMConfig:
         self.ligand_smiles = dict(ligand_smiles) if ligand_smiles else None
         self.keep_crystallisation_agents = bool(keep_crystallisation_agents)
         self.keep_ions = bool(keep_ions)
+        self.keep_waters = bool(keep_waters)
         self.protonation_overrides = dict(protonation_overrides) if protonation_overrides else None
         # Runtime-only paths (set by the workflow after prepare; not serialised):
         # the ligand SDF (perceived bonds/charges) and the GAFF AM1-BCC charge
