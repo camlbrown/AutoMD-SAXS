@@ -243,6 +243,72 @@ def structural_timeseries(trajectory, topology, stride=1, selection=DEFAULT_SELE
         return []
 
 
+def ligand_rmsf(trajectory, topology, ligand_resnames, stride=1,
+                selection=DEFAULT_SELECTION):
+    """Per-atom RMSF (Angstrom) for each bound ligand, after superposing the
+    trajectory on the protein Cα.
+
+    RMSF (root-mean-square fluctuation) is a per-atom, whole-trajectory quantity:
+    it highlights which parts of a ligand are most mobile in the pocket. Computed
+    per ligand INSTANCE (each bound copy keyed by chain:resSeq:resname), so a
+    system with several bound ligands yields one profile each. Only heavy atoms.
+    Returns a list of ``{ligand, chain, resSeq, resname, atoms:[{name, rmsf}]}``;
+    ``[]`` on error or when no ligand is present. Best-effort; never fatal.
+    """
+    mdtraj = _require_mdtraj()
+    try:
+        import numpy as np
+        ligset = {r for r in ligand_resnames if r}
+        if not ligset:
+            return []
+        traj = _solute(mdtraj.load(trajectory, top=topology, stride=stride), selection)
+        if traj.n_frames < 2:
+            return []
+        ca = traj.topology.select("name CA")
+        if len(ca):
+            traj.superpose(traj, 0, atom_indices=ca)
+        out = []
+        for res in traj.topology.residues:
+            if res.name not in ligset:
+                continue
+            heavy = [a for a in res.atoms
+                     if a.element is None or a.element.symbol != "H"]
+            if not heavy:
+                continue
+            idx = np.array([a.index for a in heavy], dtype=int)
+            xyz = traj.xyz[:, idx, :]  # (nframes, natoms, 3) in nm
+            mean = xyz.mean(axis=0)
+            rmsf = np.sqrt(((xyz - mean) ** 2).sum(axis=2).mean(axis=0)) * 10.0
+            chain = getattr(res.chain, "chain_id", None) or str(res.chain.index)
+            out.append({
+                "ligand": "{0}:{1}:{2}".format(chain, res.resSeq, res.name),
+                "chain": chain,
+                "resSeq": int(res.resSeq),
+                "resname": res.name,
+                "atoms": [{"name": heavy[k].name, "rmsf": float(rmsf[k])}
+                          for k in range(len(heavy))],
+            })
+        return out
+    except Exception:  # noqa: BLE001 - RMSF is advisory; never fail the run
+        return []
+
+
+def write_ensemble_pdb(member_pdbs, out_pdb):
+    """Concatenate the given single-frame solute PDBs into one multi-model PDB
+    (the best MultiFoXS ensemble), for download / overlay. All members share the
+    solute topology. Returns the path, or ``None`` if it can't be written."""
+    mdtraj = _require_mdtraj()
+    try:
+        existing = [p for p in member_pdbs if p and os.path.exists(p)]
+        if not existing:
+            return None
+        traj = mdtraj.load(existing)  # same topology -> one multi-model trajectory
+        _save_pdb(traj, out_pdb)
+        return out_pdb
+    except Exception:  # noqa: BLE001 - export is advisory
+        return None
+
+
 def read_pca_coords(path):
     """Read a clustering PCA_coords.txt into a list of [pc1, pc2, ...] float rows.
 

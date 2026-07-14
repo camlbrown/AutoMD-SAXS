@@ -166,6 +166,42 @@ class Workflow:
         except Exception:  # noqa: BLE001 - progress reporting must never fail a run
             pass
 
+    def _write_readme(self, paths, cfg):
+        """Write a README.txt into the job dir describing the results layout."""
+        saxs = "yes" if cfg.uses_saxs else "no"
+        text = (
+            "AutoMD-SAXS results\n"
+            "===================\n\n"
+            "Explicit-solvent MD refinement (OpenMM){0}. This directory is the\n"
+            "downloadable results bundle.\n\n"
+            "Key files\n"
+            "---------\n"
+            "  manifest.json            Machine-readable summary: inputs, parameters,\n"
+            "                           metrics (best chi^2 / frame, mean Rg), per-frame\n"
+            "                           and time-series data, and output file lists.\n"
+            "  prepared.pdb             Prepared structure (protonated protein + kept\n"
+            "                           ions/ligands/waters) that was solvated + run.\n"
+            "  production/rep*/production.dcd   Protein-only production trajectory per\n"
+            "                           repeat (read with production/combined.pdb).\n"
+            "  production/combined.dcd  All repeats concatenated (solute only).\n"
+            "  frames/rep*/structure_*.pdb      Frames extracted for SAXS/analysis.\n"
+            "  clustering/              PCA coordinates + CLoNe cluster tables (per pdc).\n"
+        )
+        if cfg.uses_saxs:
+            text += (
+                "  saxs/structure_*.fit     Per-frame FoXS fit to the experimental data.\n"
+                "  saxs/per_frame_chi2_rg.csv       Per-frame chi^2 and Rg (CSV).\n"
+                "  ensemble/ensembles_size_*.txt    MultiFoXS ensembles (members+weights).\n"
+                "  ensemble/best_ensemble.pdb       Best MultiFoXS ensemble as one\n"
+                "                           multi-model PDB (its member frames overlaid).\n"
+            )
+        text += (
+            "\nProtonation and structure preparation are best-effort automated steps;\n"
+            "review the prepared structure and the prep audit in manifest.json.\n"
+        )
+        with open(os.path.join(paths.job_dir, "README.txt"), "w") as fh:
+            fh.write(text.format(" with SAXS fitting" if saxs == "yes" else ""))
+
     def prepare_only(self):
         """Run ONLY structure preparation (strip per toggles, propka protonation,
         ligand parameterisation, keep ions) and write the prepared structure +
@@ -306,6 +342,7 @@ class Workflow:
         # the Structural Analysis tab. Computed on the solute; advisory.
         ligand_resnames = [l.get("resname") for l in (audit.get("ligands") or [])]
         time_series = []
+        ligand_rmsf = []  # per-ligand per-atom RMSF (protein-ligand systems only)
         for i in range(1, cfg.n_repeats + 1):
             ts = frames.structural_timeseries(
                 paths.repeat_trajectory(i), prod_topology, stride=frame_stride,
@@ -321,8 +358,17 @@ class Workflow:
                 row["repeat"] = i
                 row["timeNs"] = round(row["frame"] * ns_per_frame, 4)
                 time_series.append(row)
+            # Per-atom ligand RMSF per repeat (one entry per bound ligand copy).
+            if ligand_resnames:
+                for entry in frames.ligand_rmsf(
+                        paths.repeat_trajectory(i), prod_topology,
+                        ligand_resnames, stride=frame_stride):
+                    entry["repeat"] = i
+                    ligand_rmsf.append(entry)
         if time_series:
             manifest.set_parameter("timeSeries", time_series)
+        if ligand_rmsf:
+            manifest.set_parameter("ligandRmsf", ligand_rmsf)
 
         # 5. SAXS analysis (FoXS per frame + MultiFoXS ensemble)
         if cfg.uses_saxs:
@@ -374,6 +420,21 @@ class Workflow:
                         num_states=5, frame_of=_member_frame)
                     if mf:
                         manifest.set_parameter("multifoxs", mf)
+                        # Export the best ensemble as one multi-model PDB (its
+                        # member frames overlaid) for download / visualisation.
+                        best = mf.get("best") or {}
+                        members = next(
+                            (e["members"] for e in mf.get("ensembles", [])
+                             if e.get("size") == best.get("size")), [])
+                        member_pdbs = [
+                            frame_pdbs[m["frame"]] for m in members
+                            if m.get("frame") is not None
+                            and 0 <= m["frame"] < len(frame_pdbs)]
+                        ens_pdb = frames.write_ensemble_pdb(
+                            member_pdbs,
+                            os.path.join(paths.ensemble_dir, "best_ensemble.pdb"))
+                        if ens_pdb:
+                            manifest.add_output("structures", ens_pdb)
                     for f in sorted(glob.glob(
                             os.path.join(paths.ensemble_dir, "ensembles_size_*.txt"))
                             + glob.glob(os.path.join(
@@ -381,6 +442,18 @@ class Workflow:
                         manifest.add_output("saxsFits", f)
                 except Exception as exc:  # noqa: BLE001 - ensemble step is advisory
                     manifest.add_note("MultiFoXS ensemble failed (non-fatal): {0}".format(exc))
+            # Per-frame chi^2/Rg CSV (publication-friendly; lands in the bundle).
+            try:
+                csv_path = os.path.join(paths.saxs_dir, "per_frame_chi2_rg.csv")
+                with open(csv_path, "w") as fh:
+                    fh.write("frame,repeat,frameInRep,timeNs,chi2,rg\n")
+                    for r in per_frame:
+                        fh.write("{0},{1},{2},{3},{4},{5}\n".format(
+                            r.get("frame"), r.get("repeat"), r.get("frameInRep"),
+                            r.get("timeNs"), r.get("chi2"), r.get("rg")))
+                manifest.add_output("summaryTables", csv_path)
+            except Exception as exc:  # noqa: BLE001 - CSV export is advisory
+                manifest.add_note("per-frame CSV export failed (non-fatal): {0}".format(exc))
             manifest.add_step("foxs", status=STATUS_COMPLETED)
             manifest.add_step("multifoxs", status=STATUS_COMPLETED)
 
@@ -442,6 +515,12 @@ class Workflow:
         except Exception as exc:  # noqa: BLE001 - clustering must not fail the job
             manifest.add_step("cluster", status=STATUS_FAILED)
             manifest.add_note("clustering failed (non-fatal): {0}".format(exc))
+
+        # A short README explaining the results layout (lands in the bundle).
+        try:
+            self._write_readme(paths, cfg)
+        except Exception:  # noqa: BLE001 - documentation is advisory
+            pass
 
         manifest.set_status(STATUS_COMPLETED)
         manifest.write(paths.manifest_path)

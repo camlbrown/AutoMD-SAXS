@@ -69,11 +69,13 @@ _FIELDS = (
     "job_name", "pdb", "saxs", "system", "force_field", "water_model",
     "simulation_time_ns", "timestep_fs", "n_repeats", "temperature_K",
     "ionic_concentration_M", "ph", "disulfide", "box_padding_nm",
-    "equilibration_ns", "minimize_max_iterations", "nonbonded_cutoff_nm",
+    "equilibration_ns", "equilibration_nvt_fraction",
+    "equilibration_restraint_k",
+    "minimize_max_iterations", "nonbonded_cutoff_nm",
     "friction_per_ps", "report_interval_steps", "frame_stride",
     "frame_interval_ns", "seed", "platform", "hmr", "use_propka",
     "ligand_resnames", "ligand_smiles", "keep_crystallisation_agents",
-    "keep_ions", "keep_waters", "protonation_overrides", "extra",
+    "keep_ions", "ion_resnames", "keep_waters", "protonation_overrides", "extra",
 )
 
 
@@ -111,7 +113,20 @@ class OpenMMConfig:
         ph=7.0,
         disulfide=False,
         box_padding_nm=None,         # None -> derive from model Dmax at runtime
-        equilibration_ns=0.2,
+        # Total equilibration time, split NVT then NPT. 0.5 ns is a safer default
+        # than 0.2 ns: unrestrained equilibration needs time for solvent density
+        # and side chains to relax off the minimised structure before production.
+        equilibration_ns=0.5,
+        # Fraction of equilibration run as NVT (constant volume) before switching
+        # to NPT (MonteCarloBarostat): NVT relaxes temperature/velocities, then
+        # NPT relaxes the box density.
+        equilibration_nvt_fraction=0.4,
+        # Harmonic position-restraint force constant (kJ/mol/nm^2) applied to
+        # SOLUTE heavy atoms (protein/nucleic + ligand; water, ions and H left
+        # free) during equilibration, so solvent relaxes around a held structure.
+        # Released for production. 0 -> no restraints. ~1000 kJ/mol/nm^2 ~= 2.4
+        # kcal/mol/A^2 is a moderate hold.
+        equilibration_restraint_k=1000.0,
         minimize_max_iterations=0,   # 0 -> OpenMM runs until converged
         # 1.0 nm: standard PME real-space cutoff; ~1.2-1.4x faster than 1.2 nm
         # (direct-space cost ~ cutoff^3) at equivalent accuracy with PME.
@@ -136,6 +151,11 @@ class OpenMMConfig:
         # Keep bound/structural ions (Ca2+, Zn2+, Pb2+, Fe, Mg, ...) in the
         # simulation, parameterised by amber14 (default True). Set False to strip.
         keep_ions=True,
+        # Optional subset of ion residue names (PDB names, e.g. ["ZN"]) to keep
+        # when keep_ions is True; other ion species are stripped. None/empty ->
+        # keep ALL ions (so a structure with Ca2+ and Zn2+ can keep one, not the
+        # other). Ignored when keep_ions is False.
+        ion_resnames=None,
         # Keep crystallographic (structural) waters from the input in the system;
         # bulk explicit solvent is still added around them at solvation (default
         # False -> crystal waters stripped, all water re-added as bulk solvent).
@@ -165,6 +185,8 @@ class OpenMMConfig:
         self.disulfide = disulfide
         self.box_padding_nm = box_padding_nm
         self.equilibration_ns = equilibration_ns
+        self.equilibration_nvt_fraction = min(1.0, max(0.0, equilibration_nvt_fraction))
+        self.equilibration_restraint_k = max(0.0, float(equilibration_restraint_k))
         self.minimize_max_iterations = minimize_max_iterations
         self.nonbonded_cutoff_nm = nonbonded_cutoff_nm
         self.friction_per_ps = friction_per_ps
@@ -178,6 +200,8 @@ class OpenMMConfig:
         self.ligand_smiles = dict(ligand_smiles) if ligand_smiles else None
         self.keep_crystallisation_agents = bool(keep_crystallisation_agents)
         self.keep_ions = bool(keep_ions)
+        self.ion_resnames = ([str(r).strip().upper() for r in ion_resnames]
+                             if ion_resnames else None)
         self.keep_waters = bool(keep_waters)
         self.protonation_overrides = dict(protonation_overrides) if protonation_overrides else None
         # Runtime-only paths (set by the workflow after prepare; not serialised):
@@ -255,6 +279,12 @@ class OpenMMConfig:
 
     def equilibration_steps(self) -> int:
         return self._steps(self.equilibration_ns)
+
+    def equilibration_nvt_steps(self) -> int:
+        return int(self.equilibration_steps() * self.equilibration_nvt_fraction)
+
+    def equilibration_npt_steps(self) -> int:
+        return self.equilibration_steps() - self.equilibration_nvt_steps()
 
     def effective_frame_stride(self) -> int:
         """DCD-frame stride for extraction, derived from ``frame_interval_ns``.

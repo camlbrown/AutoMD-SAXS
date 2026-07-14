@@ -169,9 +169,17 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
     # as their own residues so amber14 parameterises them and solvation
     # neutralises accounting for their charge. Merged after the protein so they
     # never confuse chain-terminus detection.
+    # Optional per-species selection: keep only the chosen ion residue names
+    # (e.g. keep ZN but strip CA). None/empty -> keep all ions.
+    ion_keep = set(getattr(config, "ion_resnames", None) or [])
     ions_audit = {}
+    ion_classes_kept = {}
     if getattr(config, "keep_ions", True) and classes["ion"]:
-        ions_audit = _merge_ions(modeller, classes["ion"], app, openmm, unit)
+        ion_classes_kept = ({k: v for k, v in classes["ion"].items()
+                             if k.strip().upper() in ion_keep}
+                            if ion_keep else classes["ion"])
+        if ion_classes_kept:
+            ions_audit = _merge_ions(modeller, ion_classes_kept, app, openmm, unit)
 
     # Keep crystallographic waters when requested: build their hydrogens on a
     # separate water-only model (so protein chain-terminus detection is never
@@ -198,8 +206,8 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         "waters": {"crystallographic": n_crystal_waters,
                    "kept": keep_waters and n_crystal_waters > 0},
         "ions": ions_audit if ions_audit else {},
-        "ionsSetAside": ({} if getattr(config, "keep_ions", True)
-                         else {k: len(v) for k, v in classes["ion"].items()}),
+        "ionsSetAside": {k: len(v) for k, v in classes["ion"].items()
+                         if k not in ion_classes_kept},
         "output": out_pdb,
     }
 

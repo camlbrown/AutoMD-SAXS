@@ -177,17 +177,85 @@ def minimize(config: OpenMMConfig, solvated_pdb: str, out_pdb: str):
     return {"potentialEnergyKJ": energy, "output": out_pdb}
 
 
+def _position_restraint(openmm, unit, topology, positions, k_kj_nm2):
+    """Harmonic restraint holding SOLUTE heavy atoms near their reference
+    (minimised) positions during equilibration.
+
+    Robust across any input: water residues, monatomic ions (single-atom
+    residues -- includes the solvent counterions), and every hydrogen are left
+    free so solvent/ions can relax; protein/nucleic + ligand heavy atoms are
+    held. Uses a periodic distance so an atom that wraps across the box isn't
+    yanked. Returns the Force, or ``None`` if there is nothing to restrain.
+    """
+    force = openmm.CustomExternalForce(
+        "0.5*k*periodicdistance(x, y, z, x0, y0, z0)^2")
+    force.addGlobalParameter("k", k_kj_nm2)
+    for p in ("x0", "y0", "z0"):
+        force.addPerParticleParameter(p)
+    ref = positions.value_in_unit(unit.nanometer)
+    added = 0
+    for res in topology.residues():
+        atoms = list(res.atoms())
+        if res.name.strip().upper() in ligand.WATER or len(atoms) <= 1:
+            continue  # skip water + monatomic ions (they should relax freely)
+        for atom in atoms:
+            if atom.element is not None and atom.element.symbol == "H":
+                continue
+            pos = ref[atom.index]
+            force.addParticle(atom.index, [pos.x, pos.y, pos.z])
+            added += 1
+    return force if added else None
+
+
 def equilibrate(config: OpenMMConfig, minimized_pdb: str, out_state: str):
-    """NVT then NPT equilibration; writes a restart state (positions+velocities)."""
+    """Two-stage equilibration: NVT (constant volume) then NPT, writing a restart
+    state (positions + velocities + box).
+
+    NVT relaxes temperature/velocities from the minimised structure at fixed
+    volume; NPT then adds a MonteCarloBarostat to relax the box density to 1 bar.
+    The split is ``config.equilibration_nvt_fraction`` of the total equilibration.
+    """
     openmm, app, unit = _require_openmm()
     pdb = _load_structure(config, app, minimized_pdb)
+    temperature = config.temperature_K * unit.kelvin
+    nvt_steps = config.equilibration_nvt_steps()
+    npt_steps = config.equilibration_npt_steps()
+
+    # Stage 1 -- NVT (no barostat). Position-restrain solute heavy atoms so
+    # solvent/ions relax around a held structure; the restraint lives in this
+    # system for both NVT and NPT, and is dropped for production (which builds
+    # its own restraint-free system).
     system = build_system(config, app, unit, pdb.topology)
-    system.addForce(openmm.MonteCarloBarostat(1.0 * unit.bar, config.temperature_K * unit.kelvin))
-    simulation = _make_simulation(config, app, openmm, unit, pdb.topology, system)
-    simulation.context.setPositions(pdb.positions)
-    simulation.context.setVelocitiesToTemperature(config.temperature_K * unit.kelvin)
-    simulation.step(config.equilibration_steps())
-    simulation.saveState(out_state)
+    restraint_k = getattr(config, "equilibration_restraint_k", 0.0)
+    if restraint_k > 0:
+        restraint = _position_restraint(
+            openmm, unit, pdb.topology, pdb.positions, restraint_k)
+        if restraint is not None:
+            system.addForce(restraint)
+    sim = _make_simulation(config, app, openmm, unit, pdb.topology, system)
+    sim.context.setPositions(pdb.positions)
+    sim.context.setVelocitiesToTemperature(temperature)
+    if nvt_steps > 0:
+        sim.step(nvt_steps)
+    state = sim.context.getState(getPositions=True, getVelocities=True)
+
+    # Stage 2 -- NPT: add the barostat and continue from the NVT state. A Force
+    # added after a Context is built is only picked up by a NEW context, so we
+    # build a fresh simulation and carry positions/velocities across.
+    if npt_steps > 0:
+        system.addForce(
+            openmm.MonteCarloBarostat(1.0 * unit.bar, temperature))
+        sim = _make_simulation(config, app, openmm, unit, pdb.topology, system)
+        sim.context.setState(state)
+        sim.step(npt_steps)
+    # Save positions + velocities + (equilibrated) box vectors, but NOT global
+    # parameters. saveState() would serialise the restraint's "k" parameter,
+    # which production's restraint-free system can't restore ("invalid parameter
+    # name: k"). getState() without getParameters keeps only what production
+    # needs to continue.
+    final = sim.context.getState(getPositions=True, getVelocities=True)
+    with open(out_state, "w") as handle:
+        handle.write(openmm.XmlSerializer.serialize(final))
     return {"output": out_state}
 
 
