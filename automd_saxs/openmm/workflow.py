@@ -401,27 +401,34 @@ class Workflow:
             # computes partial profiles and fits c1/c2, matching the Carbonara
             # invocation. Lenient: never fail the job on an ensemble-step error.
             if frame_pdbs:
-                # Map a member filename multi_foxs echoes back to the GLOBAL frame
-                # index (frame_pdbs order == perFrame order). Prefer a full-path
-                # match (basenames collide across repeats: structure_5 in each).
-                basename_to_gi = {}
+                # multi_foxs echoes member filenames back in ensembles_size_*.txt.
+                # Frame basenames collide across repeats (rep1/structure_0,
+                # rep2/structure_0, ...), which would make the member->frame
+                # mapping ambiguous. Copy every frame to a GLOBALLY-UNIQUE name
+                # (frame_<gi>.pdb) and map members back by that index, so ensemble
+                # selection is unambiguous however multi_foxs echoes the name.
+                import re as _re
+                import shutil as _shutil
+                mf_inputs_dir = os.path.join(paths.ensemble_dir, "mf_inputs")
+                os.makedirs(mf_inputs_dir, exist_ok=True)
+                unique_inputs = []
                 for gi, p in enumerate(frame_pdbs):
-                    basename_to_gi.setdefault(os.path.basename(p), gi)
-                path_to_gi = {p: gi for gi, p in enumerate(frame_pdbs)}
+                    dst = os.path.join(mf_inputs_dir, "frame_{0:05d}.pdb".format(gi))
+                    _shutil.copyfile(p, dst)
+                    unique_inputs.append(dst)
 
                 def _member_frame(name):
-                    if name in path_to_gi:
-                        return path_to_gi[name]
-                    return basename_to_gi.get(os.path.basename(name))
+                    m = _re.search(r"frame_(\d+)", os.path.basename(name))
+                    return int(m.group(1)) if m else None
 
                 try:
                     mf = foxs.run_multifoxs(
-                        frame_pdbs, cfg.saxs, runner, paths.ensemble_dir,
+                        unique_inputs, cfg.saxs, runner, paths.ensemble_dir,
                         num_states=5, frame_of=_member_frame)
                     if mf:
                         manifest.set_parameter("multifoxs", mf)
-                        # Export the best ensemble as one multi-model PDB (its
-                        # member frames overlaid) for download / visualisation.
+                        # Export the best ensemble as one multi-model PDB from the
+                        # ORIGINAL frame PDBs (members carry the global frame index).
                         best = mf.get("best") or {}
                         members = next(
                             (e["members"] for e in mf.get("ensembles", [])
@@ -442,6 +449,8 @@ class Workflow:
                         manifest.add_output("saxsFits", f)
                 except Exception as exc:  # noqa: BLE001 - ensemble step is advisory
                     manifest.add_note("MultiFoXS ensemble failed (non-fatal): {0}".format(exc))
+                finally:
+                    _shutil.rmtree(mf_inputs_dir, ignore_errors=True)
             # Per-frame chi^2/Rg CSV (publication-friendly; lands in the bundle).
             try:
                 csv_path = os.path.join(paths.saxs_dir, "per_frame_chi2_rg.csv")

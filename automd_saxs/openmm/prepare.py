@@ -66,6 +66,10 @@ def prepare_structure(config: OpenMMConfig, pdb_path: str, out_pdb: str):
         pdb_path,
         strip_agents=not getattr(config, "keep_crystallisation_agents", False),
         ligand_resnames=getattr(config, "ligand_resnames", None))
+    if not classes["protein"]:
+        raise ValueError(
+            "no protein/nucleic residues found in the structure; AutoMD-SAXS "
+            "refines a macromolecule (a ligand/ion-only input is not supported)")
     keep_waters = bool(getattr(config, "keep_waters", False))
     n_crystal_waters = sum(1 for ln in classes["water"] if ln[12:16].strip() == "O") \
         or len(classes["water"])

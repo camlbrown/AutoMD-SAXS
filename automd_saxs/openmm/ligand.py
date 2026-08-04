@@ -126,29 +126,31 @@ def classify_residues(pdb_path, strip_agents=True, ligand_resnames=None):
     want = set(ligand_resnames) if ligand_resnames else None
     modified = modified_residues()
     out = {"protein": [], "ligand": {}, "water": [], "ion": {}, "stripped": {}}
-    for line in open(pdb_path):
-        rec = line[:6].strip()
-        if rec not in ("ATOM", "HETATM"):
-            continue
-        name = _resname(line)
-        # Standard + modified amino acids stay with the protein (PDBFixer converts
-        # modified ones, e.g. MSE->MET); never split them off as GAFF ligands.
-        if name in STANDARD_RESIDUES or name in modified:
-            out["protein"].append(line)
-        elif name in WATER:
-            out["water"].append(line)
-        elif name in IONS:
-            out["ion"].setdefault(name, []).append(line)
-        elif want is not None:
-            # explicit ligand list: only those are ligands, others stripped
-            if name in want:
-                out["ligand"].setdefault(name, []).append(line)
-            else:
+    with open(pdb_path) as handle:
+        for line in handle:
+            rec = line[:6].strip()
+            if rec not in ("ATOM", "HETATM"):
+                continue
+            name = _resname(line)
+            # Standard + modified amino acids stay with the protein (PDBFixer
+            # converts modified ones, e.g. MSE->MET); never split them off as
+            # GAFF ligands.
+            if name in STANDARD_RESIDUES or name in modified:
+                out["protein"].append(line)
+            elif name in WATER:
+                out["water"].append(line)
+            elif name in IONS:
+                out["ion"].setdefault(name, []).append(line)
+            elif want is not None:
+                # explicit ligand list: only those are ligands, others stripped
+                if name in want:
+                    out["ligand"].setdefault(name, []).append(line)
+                else:
+                    out["stripped"][name] = out["stripped"].get(name, 0) + 1
+            elif strip_agents and name in CRYSTALLISATION_AGENTS:
                 out["stripped"][name] = out["stripped"].get(name, 0) + 1
-        elif strip_agents and name in CRYSTALLISATION_AGENTS:
-            out["stripped"][name] = out["stripped"].get(name, 0) + 1
-        else:
-            out["ligand"].setdefault(name, []).append(line)
+            else:
+                out["ligand"].setdefault(name, []).append(line)
     return out
 
 
@@ -243,15 +245,18 @@ def write_ligand_sdf(molecules, sdf_path):
     """Write all ligand molecules (with perceived bonds/charges) to one SDF."""
     if not molecules:
         return None
-    # openff writes a single molecule per to_file; append for multiples.
-    import tempfile
+    # openff writes a single molecule per to_file; append for multiples. The
+    # per-molecule temp file is always removed, even if a write/read fails.
+    tmp = sdf_path + ".one"
     with open(sdf_path, "w") as out:
         for mol in molecules:
-            tmp = sdf_path + ".one"
-            mol.to_file(tmp, "SDF")
-            with open(tmp) as fh:
-                out.write(fh.read())
-            os.remove(tmp)
+            try:
+                mol.to_file(tmp, "SDF")
+                with open(tmp) as fh:
+                    out.write(fh.read())
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
     return sdf_path
 
 
